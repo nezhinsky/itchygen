@@ -934,17 +934,37 @@ int main(int argc, char **argv)
 	} else if (num_prob_args == 2) {
 		if (prob_exec < 0) {
 			assert(prob_cancel >= 0 && prob_replace >= 0);
+			if ((prob_cancel + prob_replace) > 100)
+				usage(EINVAL, "error: 2 probability arguments "
+				      "(-C,-R) together exceed 100%%");
 			prob_exec = 100 - (prob_cancel + prob_replace);
 		} else if (prob_cancel < 0) {
 			assert(prob_exec >= 0 && prob_replace >= 0);
+			if ((prob_exec + prob_replace) > 100)
+				usage(EINVAL, "error: 2 probability arguments "
+				      "(-E,-R) together exceed 100%%");
 			prob_cancel = 100 - (prob_exec + prob_replace);
 		} else if (prob_replace < 0) {
 			assert(prob_cancel >= 0 && prob_exec >= 0);
+			if ((prob_cancel + prob_exec) > 100)
+				usage(EINVAL, "error: 2 probability arguments "
+				      "(-E,-C) together exceed 100%%");
 			prob_replace = 100 - (prob_exec + prob_cancel);
 		}
-	} else
+	} else if (num_prob_args == 1) {
+		if (prob_exec == 100) {
+			prob_cancel = prob_replace = 0;
+		} else if (prob_cancel == 100) {
+                        prob_exec = prob_replace = 0;
+                } else if (prob_replace == 100) {
+                        prob_cancel = prob_exec = 0;
+                } else
+			usage(EINVAL, "error: single probability argument "
+			      "must be 100%%");
+	} else {
 		usage(EINVAL, "error: you should supply at least "
 		      "2 of 3 probability (-E/-C/-R) arguments");
+	}
 
 	rand_util_init(use_seed, &itchygen.rand_seed);
 

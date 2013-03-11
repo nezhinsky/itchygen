@@ -11,9 +11,11 @@
 
 #include "itch_proto.h"
 
+static char *prog_name;
+
 static void usage(int err)
 {
-	printf("usage:  udpclient <ip_addr> <port>\n");
+	printf("usage: %s <ip_addr> <port>\n", prog_name);
 	exit(err);
 }
 
@@ -121,10 +123,10 @@ int main(int argc, char **argv)
 		.price = replace_msg2.price,
 	};
 
-	if (argc != 3) {
-		printf("usage:  itchyping <ip_addr> <port>\n");
-		exit(1);
-	}
+	prog_name = basename(argv[0]);
+
+	if (argc != 3)
+		usage(EINVAL);
 
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 

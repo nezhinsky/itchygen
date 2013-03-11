@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <endian.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -35,6 +36,14 @@
 #include <inttypes.h>
 
 #include "itch_proto.h"
+
+static char *prog_name;
+
+static void usage(int err)
+{
+        printf("usage: %s <port>\n", prog_name);
+        exit(err);
+}
 
 static unsigned int time_sec;
 
@@ -96,16 +105,15 @@ int main(int argc, char **argv)
 	unsigned short port;
 	char msg[1000];
 
-	if (argc != 2) {
-		printf("usage:  udpserver <port>\n");
-		exit(1);
-	}
+	prog_name = basename(argv[0]);
+
+	if (argc != 2)
+		usage(EINVAL);
 
 	port = atoi(argv[1]);
 	if (!port) {
 		printf("port arg invalid: %s\n", argv[1]);
-		printf("usage:  udpserver <port>\n");
-		exit(1);
+		usage(EINVAL);
 	}
 
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -141,4 +149,5 @@ int main(int argc, char **argv)
 			break;
 		}
 	}
+	return 0;
 }
