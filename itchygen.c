@@ -121,6 +121,7 @@ enum order_event_type {
 	ORDER_EXEC,
 	ORDER_CANCEL,
 	ORDER_REPLACE,
+	ORDER_TIMESTAMP,
 
 	MODIFY_ORDER_NUM_TYPES,
 };
@@ -136,6 +137,8 @@ static const char *trade_outcome_str(enum order_event_type type)
 		return "CANCEL";
 	case ORDER_REPLACE:
 		return "REPLACE";
+	case ORDER_TIMESTAMP:
+		return "TIMESTAMP";
 	default:
 		return "UNKNOWN";
 	}
@@ -172,6 +175,9 @@ struct order_event {
 			unsigned int price;	/* new price */
 			unsigned long long orig_ref_num;
 		} replace;
+		struct {
+			unsigned int seconds;
+		} timestamp;
 	};
 };
 
@@ -303,6 +309,13 @@ static void print_order_replace(struct itchygen_info *itchygen,
 	     event->replace.price);
 }
 
+static void print_order_timestamp(struct itchygen_info *itchygen,
+				  struct order_event *event)
+{
+	printf("time: %2.9f timestamp: %d sec\n",
+	       event->time, event->timestamp.seconds);
+}
+
 static void order_event_print(struct itchygen_info *itchygen,
 			      struct order_event *event, char *prefix)
 {
@@ -319,6 +332,9 @@ static void order_event_print(struct itchygen_info *itchygen,
 		break;
 	case ORDER_REPLACE:
 		print_order_replace(itchygen, event);
+		break;
+	case ORDER_TIMESTAMP:
+		print_order_timestamp(itchygen, event);
 		break;
 	default:
 		break;
@@ -404,6 +420,19 @@ static int pcap_order_replace(struct itchygen_info *itchygen,
 				    &replace_msg, sizeof(replace_msg));
 }
 
+static int pcap_order_timestamp(struct itchygen_info *itchygen,
+				struct order_event *event)
+{
+	struct itch_msg_timestamp time_msg = {
+		.msg_type = MSG_TYPE_TIMESTAMP,
+		.second = htobe32(event->timestamp.seconds),
+	};
+
+	return pcap_file_add_record(dtime_to_sec(event->time),
+				    dtime_to_usec(event->time),
+				    &time_msg, sizeof(time_msg));
+}
+
 static void order_event_pcap_msg(struct itchygen_info *itchygen,
 				 struct order_event *event)
 {
@@ -421,6 +450,9 @@ static void order_event_pcap_msg(struct itchygen_info *itchygen,
 		break;
 	case ORDER_REPLACE:
 		err = pcap_order_replace(itchygen, event);
+		break;
+	case ORDER_TIMESTAMP:
+		err = pcap_order_timestamp(itchygen, event);
 		break;
 	default:
 		assert(0);
@@ -574,6 +606,24 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 		break;
 	}
 	return event;
+}
+
+static void generate_timestamps(struct itchygen_info *itchygen, int max_seconds)
+{
+	struct order_event *order;
+	int i;
+
+	for (i = 0; i < max_seconds; i++) {
+		order = malloc(sizeof(*order));
+		assert(order);
+
+		memset(order, 0, sizeof(*order));
+		order->type = ORDER_TIMESTAMP;
+		order->time = (double)i;
+		order->timestamp.seconds = i;
+
+		add_to_time_list(itchygen, order);
+	}
 }
 
 static void generate_orders(struct itchygen_info *itchygen)
@@ -955,10 +1005,10 @@ int main(int argc, char **argv)
 		if (prob_exec == 100) {
 			prob_cancel = prob_replace = 0;
 		} else if (prob_cancel == 100) {
-                        prob_exec = prob_replace = 0;
-                } else if (prob_replace == 100) {
-                        prob_cancel = prob_exec = 0;
-                } else
+			prob_exec = prob_replace = 0;
+		} else if (prob_replace == 100) {
+			prob_cancel = prob_exec = 0;
+		} else
 			usage(EINVAL, "error: single probability argument "
 			      "must be 100%%");
 	} else {
@@ -1000,6 +1050,8 @@ int main(int argc, char **argv)
 
 	if (itchygen.verbose_mode)
 		print_params(&itchygen);
+
+	generate_timestamps(&itchygen, run_time);
 	generate_orders(&itchygen);
 
 	pcap_file_close();
