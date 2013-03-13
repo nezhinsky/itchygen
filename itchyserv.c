@@ -41,7 +41,7 @@ static char *prog_name;
 
 static void usage(int err)
 {
-	printf("usage: %s <port>\n", prog_name);
+	printf("usage: %s <port> [silent]\n", prog_name);
 	exit(err);
 }
 
@@ -93,17 +93,23 @@ int main(int argc, char **argv)
 	unsigned short port;
 	uint64_t seq_num = 0;
 	struct itch_packet *pkt;
+	int silent_mode = 0;
 	char msg[1000];
 
 	prog_name = basename(argv[0]);
 
-	if (argc != 2)
+	if (argc != 2 && argc != 3)
 		usage(EINVAL);
 
 	port = atoi(argv[1]);
 	if (!port) {
 		printf("port arg invalid: %s\n", argv[1]);
 		usage(EINVAL);
+	}
+
+	if (argc == 3 && !strncmp(argv[2], "silent", 6)) {
+		silent_mode = 1;
+		printf("silent mode on\n");
 	}
 
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -133,12 +139,30 @@ int main(int argc, char **argv)
 			       be64toh(pkt->mold.seq_num), seq_num);
 			exit(EIO);
 		}
-		printf("[%" PRIu64 "] ", seq_num++);
+		if (!silent_mode)
+			printf("[%" PRIu64 "] ", seq_num);
+		seq_num++;
 
 		if (be16toh(pkt->mold.msg_cnt) != 1) {
 			printf("error: mold_udp64 msg cnt:%d, 1 expected\n",
 			       be16toh(pkt->mold.msg_cnt));
 			exit(EIO);
+		}
+
+		if (silent_mode) {
+			switch (pkt->msg.common.msg_type) {
+			case MSG_TYPE_ADD_ORDER_NO_MPID:
+			case MSG_TYPE_ORDER_EXECUTED:
+			case MSG_TYPE_ORDER_CANCEL:
+			case MSG_TYPE_ORDER_REPLACE:
+			case MSG_TYPE_TIMESTAMP:
+				break;
+			default:
+				printf("error: unsupported msg: %c, len:%d\n",
+				       pkt->msg.common.msg_type, n);
+				exit(EIO);
+			}
+			continue;
 		}
 
 		switch (pkt->msg.common.msg_type) {
@@ -160,7 +184,7 @@ int main(int argc, char **argv)
 		default:
 			printf("error: unsupported msg: %c, len:%d\n",
 			       pkt->msg.common.msg_type, n);
-			break;
+			exit(EIO);
 		}
 	}
 	return 0;
