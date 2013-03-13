@@ -200,6 +200,7 @@ struct itchygen_info {
 
 	unsigned long long cur_ref_num;
 	unsigned long long cur_match_num;
+	unsigned long long cur_seq_num;
 	double cur_time;
 	struct ulist_head time_list;
 	struct rand_interval order_type_prob_int[MODIFY_ORDER_NUM_TYPES];
@@ -317,9 +318,14 @@ static void print_order_timestamp(struct itchygen_info *itchygen,
 }
 
 static void order_event_print(struct itchygen_info *itchygen,
-			      struct order_event *event, char *prefix)
+			      struct order_event *event, char *prefix,
+			      int print_seq_num)
 {
-	printf("%s", prefix);
+	if (!print_seq_num)
+		printf("%s", prefix);
+	else
+		printf("%s %lld ", prefix, itchygen->cur_seq_num);
+
 	switch (event->type) {
 	case ORDER_ADD:
 		print_order_add(itchygen, event);
@@ -354,83 +360,134 @@ static void order_event_free_back(struct order_event *event)
 static int pcap_order_add(struct itchygen_info *itchygen,
 			  struct order_event *event)
 {
-	struct itch_msg_add_order_no_mpid add_msg = {
-		.msg_type = MSG_TYPE_ADD_ORDER_NO_MPID,
-		.timestamp_ns = htobe32(dtime_to_nsec(event->time)),
-		.ref_num = htobe64(event->ref_num),
-		.buy_sell = event->add.buy ? ITCH_ORDER_BUY : ITCH_ORDER_SELL,
-		.shares = htobe32(event->add.shares),
-		.price = htobe32(event->add.price),
+	struct itch_packet order_pkt = {
+		.mold = {
+			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .msg_cnt = htobe16(1),
+			 },
+		.msg.order = {
+			      .msg_type = MSG_TYPE_ADD_ORDER_NO_MPID,
+			      .timestamp_ns =
+			      htobe32(dtime_to_nsec(event->time)),
+			      .ref_num = htobe64(event->ref_num),
+			      .buy_sell =
+			      event->add.buy ? ITCH_ORDER_BUY : ITCH_ORDER_SELL,
+			      .shares = htobe32(event->add.shares),
+			      .price = htobe32(event->add.price),
+			      },
 	};
 	int i;
 
-	strncpy(add_msg.stock, event->symbol->name, sizeof(add_msg.stock) - 1);
-	for (i = strlen(add_msg.stock) + 1; i < sizeof(add_msg.stock); i++)
-		add_msg.stock[i] = '\0';
+	strncpy(order_pkt.msg.order.stock, event->symbol->name,
+		sizeof(order_pkt.msg.order.stock) - 1);
+	for (i = strlen(order_pkt.msg.order.stock) + 1;
+	     i < sizeof(order_pkt.msg.order.stock); i++)
+		order_pkt.msg.order.stock[i] = '\0';
 
-	return pcap_file_add_record(dtime_to_sec(event->time), dtime_to_usec(event->time) + 3,	/* 3 usec delay */
-				    &add_msg, sizeof(add_msg));
+	return pcap_file_add_record(dtime_to_sec(event->time),
+				    dtime_to_usec(event->time) + 3,
+				    &order_pkt,
+				    sizeof(order_pkt.mold) +
+				    sizeof(order_pkt.msg.order));
 }
 
 static int pcap_order_cancel(struct itchygen_info *itchygen,
 			     struct order_event *event)
 {
-	struct itch_msg_order_cancel cancel_msg = {
-		.msg_type = MSG_TYPE_ORDER_CANCEL,
-		.timestamp_ns = htobe32(dtime_to_nsec(event->time)),
-		.ref_num = htobe64(event->ref_num),
-		.shares = htobe32(event->cancel.shares),
+	struct itch_packet cancel_pkt = {
+		.mold = {
+			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .msg_cnt = htobe16(1),
+			 },
+		.msg.cancel = {
+			       .msg_type = MSG_TYPE_ORDER_CANCEL,
+			       .timestamp_ns =
+			       htobe32(dtime_to_nsec(event->time)),
+			       .ref_num = htobe64(event->ref_num),
+			       .shares = htobe32(event->cancel.shares),
+			       },
 	};
 
-	return pcap_file_add_record(dtime_to_sec(event->time), dtime_to_usec(event->time) + 3,	/* 3 usec delay */
-				    &cancel_msg, sizeof(cancel_msg));
+	return pcap_file_add_record(dtime_to_sec(event->time),
+				    dtime_to_usec(event->time) + 3,
+				    &cancel_pkt,
+				    sizeof(cancel_pkt.mold) +
+				    sizeof(cancel_pkt.msg.cancel));
 }
 
 static int pcap_order_exec(struct itchygen_info *itchygen,
 			   struct order_event *event)
 {
-	struct itch_msg_order_exec exec_msg = {
-		.msg_type = MSG_TYPE_ORDER_EXECUTED,
-		.timestamp_ns = htobe32(dtime_to_nsec(event->time)),
-		.ref_num = htobe64(event->ref_num),
-		.shares = htobe32(event->exec.shares),
-		.match_num = htobe64(event->exec.match_num),
-		.printable = 'Y',
-		.price = htobe32(event->exec.price),
+	struct itch_packet exec_pkt = {
+		.mold = {
+			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .msg_cnt = htobe16(1),
+			 },
+		.msg.exec = {
+			     .msg_type = MSG_TYPE_ORDER_EXECUTED,
+			     .timestamp_ns =
+			     htobe32(dtime_to_nsec(event->time)),
+			     .ref_num = htobe64(event->ref_num),
+			     .shares = htobe32(event->exec.shares),
+			     .match_num = htobe64(event->exec.match_num),
+			     .printable = 'Y',
+			     .price = htobe32(event->exec.price),
+			     },
 	};
 
-	return pcap_file_add_record(dtime_to_sec(event->time), dtime_to_usec(event->time) + 3,	/* 3 usec delay */
-				    &exec_msg, sizeof(exec_msg));
+	return pcap_file_add_record(dtime_to_sec(event->time),
+				    dtime_to_usec(event->time) + 3,
+				    &exec_pkt,
+				    sizeof(exec_pkt.mold) +
+				    sizeof(exec_pkt.msg.exec));
 }
 
 static int pcap_order_replace(struct itchygen_info *itchygen,
 			      struct order_event *event)
 {
-	struct itch_msg_order_replace replace_msg = {
-		.msg_type = MSG_TYPE_ORDER_REPLACE,
-		.timestamp_ns = htobe32(dtime_to_nsec(event->time)),
-		.orig_ref_num = htobe64(event->replace.orig_ref_num),
-		.new_ref_num = htobe64(event->ref_num),
-		.shares = htobe32(event->replace.shares),
-		.price = htobe32(event->replace.price),
+	struct itch_packet replace_pkt = {
+		.mold = {
+			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .msg_cnt = htobe16(1),
+			 },
+		.msg.replace = {
+				.msg_type = MSG_TYPE_ORDER_REPLACE,
+				.timestamp_ns =
+				htobe32(dtime_to_nsec(event->time)),
+				.orig_ref_num =
+				htobe64(event->replace.orig_ref_num),
+				.new_ref_num = htobe64(event->ref_num),
+				.shares = htobe32(event->replace.shares),
+				.price = htobe32(event->replace.price),
+				},
 	};
 
 	return pcap_file_add_record(dtime_to_sec(event->time),
-				    dtime_to_usec(event->time),
-				    &replace_msg, sizeof(replace_msg));
+				    dtime_to_usec(event->time) + 3,
+				    &replace_pkt,
+				    sizeof(replace_pkt.mold) +
+				    sizeof(replace_pkt.msg.replace));
 }
 
 static int pcap_order_timestamp(struct itchygen_info *itchygen,
 				struct order_event *event)
 {
-	struct itch_msg_timestamp time_msg = {
-		.msg_type = MSG_TYPE_TIMESTAMP,
-		.second = htobe32(event->timestamp.seconds),
+	struct itch_packet time_pkt = {
+		.mold = {
+			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .msg_cnt = htobe16(1),
+			 },
+		.msg.time = {
+			     .msg_type = MSG_TYPE_TIMESTAMP,
+			     .second = htobe32(event->timestamp.seconds),
+			     },
 	};
 
 	return pcap_file_add_record(dtime_to_sec(event->time),
-				    dtime_to_usec(event->time),
-				    &time_msg, sizeof(time_msg));
+				    dtime_to_usec(event->time) + 3,
+				    &time_pkt,
+				    sizeof(time_pkt.mold) +
+				    sizeof(time_pkt.msg.time));
 }
 
 static void order_event_pcap_msg(struct itchygen_info *itchygen,
@@ -470,9 +527,10 @@ void order_event_submit(struct itchygen_info *itchygen,
 			struct order_event *event)
 {
 	if (itchygen->verbose_mode)
-		order_event_print(itchygen, event, ">>> ");
+		order_event_print(itchygen, event, ">>> ", 1);
 
 	order_event_pcap_msg(itchygen, event);
+	itchygen->cur_seq_num++;
 }
 
 #define SUBMIT_UNTIL	0
@@ -643,7 +701,7 @@ static void generate_orders(struct itchygen_info *itchygen)
 
 		add_to_time_list(itchygen, order);
 		if (itchygen->debug_mode)
-			order_event_print(itchygen, order, "+++ ");
+			order_event_print(itchygen, order, "+++ ", 0);
 
 		prev_event = order;
 		do {
@@ -656,7 +714,7 @@ static void generate_orders(struct itchygen_info *itchygen)
 
 			add_to_time_list(itchygen, event);
 			if (itchygen->debug_mode)
-				order_event_print(itchygen, event, "+++ ");
+				order_event_print(itchygen, event, "+++ ", 0);
 
 			prev_event = event;
 		} while (event->remain_shares);

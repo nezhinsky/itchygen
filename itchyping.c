@@ -15,7 +15,7 @@ static char *prog_name;
 
 static void usage(int err)
 {
-	printf("usage: %s <ip_addr> <port>\n", prog_name);
+	printf("usage: %s <ip_addr> <port> [seq_num:0]\n", prog_name);
 	exit(err);
 }
 
@@ -36,14 +36,23 @@ const uint32_t TIME_NS_7 = 789123456L;
 
 static int sockfd;
 static struct sockaddr_in servaddr;
+static uint64_t seq_num = 0;
 
 static void send_msg(void *buf, size_t size)
 {
-	int n;
+	int n, pkt_sz;
+	struct itch_packet pkt;
 
-	n = sendto(sockfd, buf, size, 0,
+	memset(&pkt.mold.session, 0, sizeof(pkt.mold.session));
+	pkt.mold.seq_num = htobe64(seq_num);
+	seq_num++;
+	pkt.mold.msg_cnt = htobe16(1);
+	memcpy(&pkt.msg, buf, size);
+
+	pkt_sz = sizeof(pkt.mold) + size;
+	n = sendto(sockfd, &pkt, pkt_sz, 0,
 		   (struct sockaddr *)&servaddr, sizeof(servaddr));
-	if (n == size)
+	if (n == pkt_sz)
 		return;
 	else if (n < 0) {
 		printf("failed to send msg, size %zd : %m\n", size);
@@ -125,7 +134,7 @@ int main(int argc, char **argv)
 
 	prog_name = basename(argv[0]);
 
-	if (argc != 3)
+	if (argc != 3 && argc != 4)
 		usage(EINVAL);
 
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -144,6 +153,9 @@ int main(int argc, char **argv)
 		usage(EINVAL);
 	}
 	servaddr.sin_port = htons(port);
+
+	if (argc == 4)
+		seq_num = atoi(argv[3]);
 
 	send_msg(&time_msg, sizeof(time_msg));
 	send_msg(&add_msg1, sizeof(add_msg1));

@@ -93,6 +93,35 @@ struct itch_msg_order_replace {
 	uint32_t price;		/* new display price */
 } __attribute__ ((packed));
 
+struct itch_msg_common {
+	char msg_type;		/* only msg_type is common for all */
+	uint32_t timestamp_ns;
+	uint64_t ref_num;
+} __attribute__ ((packed));
+
+union itch_msg {
+	struct itch_msg_common common;
+	struct itch_msg_timestamp time;
+	struct itch_msg_stock_trade trade;
+	struct itch_msg_add_order_no_mpid order;
+	struct itch_msg_add_order_with_mpid order_mpid;
+	struct itch_msg_order_exec exec;
+	struct itch_msg_order_cancel cancel;
+	struct itch_msg_order_delete del;
+	struct itch_msg_order_replace replace;
+} __attribute__ ((packed));
+
+struct mold_udp64 {
+	char session[10];
+	uint64_t seq_num;
+	uint16_t msg_cnt;
+} __attribute__ ((packed));
+
+struct itch_packet {
+	struct mold_udp64 mold;
+	union itch_msg msg;
+} __attribute__ ((packed));
+
 static inline char *str_buy_sell(char buy_sell)
 {
 	if (buy_sell == ITCH_ORDER_BUY)

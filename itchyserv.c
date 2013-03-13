@@ -41,25 +41,20 @@ static char *prog_name;
 
 static void usage(int err)
 {
-        printf("usage: %s <port>\n", prog_name);
-        exit(err);
+	printf("usage: %s <port>\n", prog_name);
+	exit(err);
 }
 
 static unsigned int time_sec;
 
-static void print_event_time(char *msg)
+static void print_event_time(struct itch_msg_timestamp *evt)
 {
-	struct itch_msg_timestamp *evt = (struct itch_msg_timestamp *)msg;
-
 	time_sec = be32toh(evt->second);
 	printf("timestamp: %d sec\n", time_sec);
 }
 
-static void print_event_add(char *msg)
+static void print_event_add(struct itch_msg_add_order_no_mpid *evt)
 {
-	struct itch_msg_add_order_no_mpid *evt =
-	    (struct itch_msg_add_order_no_mpid *)msg;
-
 	printf("time: %d.%09d ADD ref: %" PRIu64
 	       " %s shares: %d %s price: %d\n", time_sec,
 	       be32toh(evt->timestamp_ns), be64toh(evt->ref_num), evt->stock,
@@ -67,29 +62,22 @@ static void print_event_add(char *msg)
 	       be32toh(evt->price));
 }
 
-static void print_event_exec(char *msg)
+static void print_event_exec(struct itch_msg_order_exec *evt)
 {
-	struct itch_msg_order_exec *evt = (struct itch_msg_order_exec *)msg;
-
 	printf("time: %d.%09d EXEC ref: %" PRIu64 " shares: %d price: %d\n",
 	       time_sec, be32toh(evt->timestamp_ns), be64toh(evt->ref_num),
 	       be32toh(evt->shares), be32toh(evt->price));
 }
 
-static void print_event_cancel(char *msg)
+static void print_event_cancel(struct itch_msg_order_cancel *evt)
 {
-	struct itch_msg_order_cancel *evt = (struct itch_msg_order_cancel *)msg;
-
 	printf("time: %d.%09d CANCEL ref: %" PRIu64 " shares: %d\n",
 	       time_sec, be32toh(evt->timestamp_ns), be64toh(evt->ref_num),
 	       be32toh(evt->shares));
 }
 
-static void print_event_replace(char *msg)
+static void print_event_replace(struct itch_msg_order_replace *evt)
 {
-	struct itch_msg_order_replace *evt =
-	    (struct itch_msg_order_replace *)msg;
-
 	printf("time: %d.%09d REPLACE ref: %" PRIu64 " -> %" PRIu64
 	       " shares: %d price: %d\n",
 	       time_sec, be32toh(evt->timestamp_ns),
@@ -103,6 +91,8 @@ int main(int argc, char **argv)
 	struct sockaddr_in servaddr, cliaddr;
 	socklen_t len;
 	unsigned short port;
+	uint64_t seq_num = 0;
+	struct itch_packet *pkt;
 	char msg[1000];
 
 	prog_name = basename(argv[0]);
@@ -124,28 +114,52 @@ int main(int argc, char **argv)
 	servaddr.sin_port = htons(port);
 	bind(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
 
-	for (;;) {
+	for (pkt = (struct itch_packet *)msg;;) {
 		len = sizeof(cliaddr);
-		n = recvfrom(sockfd, msg, 1000, 0, (struct sockaddr *)&cliaddr,
-			     &len);
-		switch (msg[0]) {
+		n = recvfrom(sockfd, msg, sizeof(msg), 0,
+			     (struct sockaddr *)&cliaddr, &len);
+		if (n < 0) {
+			printf("error: failed to received msg, %m\n");
+			exit(errno);
+		} else if (n < (sizeof(pkt->mold) + sizeof(pkt->msg.time))) {
+			printf("error: received %d out of %zd bytes\n", n,
+			       (sizeof(pkt->mold) + sizeof(pkt->msg.time)));
+			exit(EIO);
+		}
+
+		if (be64toh(pkt->mold.seq_num) != seq_num) {
+			printf("error: mold_udp64 seq num: %" PRIu64
+			       " received, " "expected: %" PRIu64 "\n",
+			       be64toh(pkt->mold.seq_num), seq_num);
+			exit(EIO);
+		}
+		printf("[%" PRIu64 "] ", seq_num++);
+
+		if (be16toh(pkt->mold.msg_cnt) != 1) {
+			printf("error: mold_udp64 msg cnt:%d, 1 expected\n",
+			       be16toh(pkt->mold.msg_cnt));
+			exit(EIO);
+		}
+
+		switch (pkt->msg.common.msg_type) {
 		case MSG_TYPE_ADD_ORDER_NO_MPID:
-			print_event_add(msg);
+			print_event_add(&pkt->msg.order);
 			break;
 		case MSG_TYPE_ORDER_EXECUTED:
-			print_event_exec(msg);
+			print_event_exec(&pkt->msg.exec);
 			break;
 		case MSG_TYPE_ORDER_CANCEL:
-			print_event_cancel(msg);
+			print_event_cancel(&pkt->msg.cancel);
 			break;
 		case MSG_TYPE_ORDER_REPLACE:
-			print_event_replace(msg);
+			print_event_replace(&pkt->msg.replace);
 			break;
 		case MSG_TYPE_TIMESTAMP:
-			print_event_time(msg);
+			print_event_time(&pkt->msg.time);
 			break;
 		default:
-			printf("unsupported msg: %c, len:%d\n", msg[0], n);
+			printf("error: unsupported msg: %c, len:%d\n",
+			       pkt->msg.common.msg_type, n);
 			break;
 		}
 	}
