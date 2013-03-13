@@ -360,7 +360,7 @@ static void order_event_free_back(struct order_event *event)
 static int pcap_order_add(struct itchygen_info *itchygen,
 			  struct order_event *event)
 {
-	struct itch_packet order_pkt = {
+	struct itch_packet pkt = {
 		.mold = {
 			 .seq_num = htobe64(itchygen->cur_seq_num),
 			 .msg_cnt = htobe16(1),
@@ -378,23 +378,25 @@ static int pcap_order_add(struct itchygen_info *itchygen,
 	};
 	int i;
 
-	strncpy(order_pkt.msg.order.stock, event->symbol->name,
-		sizeof(order_pkt.msg.order.stock) - 1);
-	for (i = strlen(order_pkt.msg.order.stock) + 1;
-	     i < sizeof(order_pkt.msg.order.stock); i++)
-		order_pkt.msg.order.stock[i] = '\0';
+	memcpy(&pkt.mold.session, "sessionabc", 10);
+	strncpy(pkt.msg.order.stock, event->symbol->name,
+		sizeof(pkt.msg.order.stock) - 1);
+
+	for (i = strlen(pkt.msg.order.stock) + 1;
+	     i < sizeof(pkt.msg.order.stock); i++) {
+		pkt.msg.order.stock[i] = '\0';
+	}
 
 	return pcap_file_add_record(dtime_to_sec(event->time),
 				    dtime_to_usec(event->time) + 3,
-				    &order_pkt,
-				    sizeof(order_pkt.mold) +
-				    sizeof(order_pkt.msg.order));
+				    &pkt,
+				    sizeof(pkt.mold) + sizeof(pkt.msg.order));
 }
 
 static int pcap_order_cancel(struct itchygen_info *itchygen,
 			     struct order_event *event)
 {
-	struct itch_packet cancel_pkt = {
+	struct itch_packet pkt = {
 		.mold = {
 			 .seq_num = htobe64(itchygen->cur_seq_num),
 			 .msg_cnt = htobe16(1),
@@ -408,17 +410,17 @@ static int pcap_order_cancel(struct itchygen_info *itchygen,
 			       },
 	};
 
+	memcpy(&pkt.mold.session, "sessionabc", 10);
 	return pcap_file_add_record(dtime_to_sec(event->time),
 				    dtime_to_usec(event->time) + 3,
-				    &cancel_pkt,
-				    sizeof(cancel_pkt.mold) +
-				    sizeof(cancel_pkt.msg.cancel));
+				    &pkt,
+				    sizeof(pkt.mold) + sizeof(pkt.msg.cancel));
 }
 
 static int pcap_order_exec(struct itchygen_info *itchygen,
 			   struct order_event *event)
 {
-	struct itch_packet exec_pkt = {
+	struct itch_packet pkt = {
 		.mold = {
 			 .seq_num = htobe64(itchygen->cur_seq_num),
 			 .msg_cnt = htobe16(1),
@@ -435,17 +437,17 @@ static int pcap_order_exec(struct itchygen_info *itchygen,
 			     },
 	};
 
+	memcpy(&pkt.mold.session, "sessionabc", 10);
 	return pcap_file_add_record(dtime_to_sec(event->time),
 				    dtime_to_usec(event->time) + 3,
-				    &exec_pkt,
-				    sizeof(exec_pkt.mold) +
-				    sizeof(exec_pkt.msg.exec));
+				    &pkt,
+				    sizeof(pkt.mold) + sizeof(pkt.msg.exec));
 }
 
 static int pcap_order_replace(struct itchygen_info *itchygen,
 			      struct order_event *event)
 {
-	struct itch_packet replace_pkt = {
+	struct itch_packet pkt = {
 		.mold = {
 			 .seq_num = htobe64(itchygen->cur_seq_num),
 			 .msg_cnt = htobe16(1),
@@ -462,17 +464,17 @@ static int pcap_order_replace(struct itchygen_info *itchygen,
 				},
 	};
 
+	memcpy(&pkt.mold.session, "sessionabc", 10);
 	return pcap_file_add_record(dtime_to_sec(event->time),
 				    dtime_to_usec(event->time) + 3,
-				    &replace_pkt,
-				    sizeof(replace_pkt.mold) +
-				    sizeof(replace_pkt.msg.replace));
+				    &pkt,
+				    sizeof(pkt.mold) + sizeof(pkt.msg.replace));
 }
 
 static int pcap_order_timestamp(struct itchygen_info *itchygen,
 				struct order_event *event)
 {
-	struct itch_packet time_pkt = {
+	struct itch_packet pkt = {
 		.mold = {
 			 .seq_num = htobe64(itchygen->cur_seq_num),
 			 .msg_cnt = htobe16(1),
@@ -483,11 +485,11 @@ static int pcap_order_timestamp(struct itchygen_info *itchygen,
 			     },
 	};
 
+	memcpy(&pkt.mold.session, "sessionabc", 10);
 	return pcap_file_add_record(dtime_to_sec(event->time),
 				    dtime_to_usec(event->time) + 3,
-				    &time_pkt,
-				    sizeof(time_pkt.mold) +
-				    sizeof(time_pkt.msg.time));
+				    &pkt,
+				    sizeof(pkt.mold) + sizeof(pkt.msg.time));
 }
 
 static void order_event_pcap_msg(struct itchygen_info *itchygen,
