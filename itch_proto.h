@@ -9,10 +9,10 @@
 
 #include <stdint.h>
 
-#define TRADIING_STATE_HALTED		'H'	/* halted across all markets/SROs */
-#define TRADIING_STATE_PAUSED		'P'	/* paused across all markets/SROs (NASDAQ only) */
-#define TRADIING_STATE_QUOTE_ONLY	'Q'	/* quotation only period for cross-SRO halt/pause */
-#define TRADIING_STATE_TRADING		'T'	/* currently trading on NASDAQ */
+#define TRADING_STATE_HALTED		'H'	/* halted across all markets/SROs */
+#define TRADING_STATE_PAUSED		'P'	/* paused across all markets/SROs (NASDAQ only) */
+#define TRADING_STATE_QUOTE_ONLY	'Q'	/* quotation only period for cross-SRO halt/pause */
+#define TRADING_STATE_TRADING		'T'	/* currently trading on NASDAQ */
 
 #define MSG_TYPE_TRADING_ACTION		'H'
 #define MSG_TYPE_TIMESTAMP		'T'
