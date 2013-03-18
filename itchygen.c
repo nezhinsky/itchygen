@@ -48,7 +48,7 @@
 
 static void usage(int status, char *msg);
 
-static char itchygen_version[] = "0.1";
+static char itchygen_version[] = "0.2";
 static char program_name[] = "itchygen";
 
 static void version(void)
@@ -252,17 +252,23 @@ static unsigned long long generate_ref_num(struct itchygen_info *itchygen)
 
 static struct rand_interval symbol_len_rand_int[2];	/* len: 3, 4 */
 
-static void generate_symbol_name(struct trade_symbol *symbol)
+static void generate_symbol_name(struct trade_symbol *symbol,
+				 const char *src_name)
 {
-	int len = 3 + rand_index(symbol_len_rand_int, 2);	/* 3 or 4 */
-	int i;
+	if (src_name) {
+		strncpy(symbol->name, src_name, sizeof(symbol->name) - 1);
+		symbol->auto_gen = 0;
+	} else {
+		int len = 3 + rand_index(symbol_len_rand_int, 2);	/* 3 or 4 */
+		int i;
 
-	for (i = 0; i < len; i++)
-		symbol->name[i] = rand_char_capital();
-	symbol->name[len] = '\0';
+		for (i = 0; i < len; i++)
+			symbol->name[i] = rand_char_capital();
+		symbol->name[len] = '\0';
+		symbol->auto_gen = 1;
+	}
 	symbol->min_price = rand_int_range(10, 600);
 	symbol->max_price = 3 * symbol->min_price;
-	symbol->auto_gen = 1;
 }
 
 static inline double gen_inter_order_time(struct itchygen_info *itchygen)
@@ -776,7 +782,7 @@ static void usage(int status, char *msg)
 
 	printf("ITCH stream generator, version %s\n\n"
 	       "Usage: %s [OPTION]\n"
-	       "-s, --symbols       total number of [s]ymbols in use\n"
+	       "-s, --symbol-file   file with ticker [s]ymbols to use\n"
 	       "-t, --run-time      total [t]ime for generated orders\n"
 	       "-r, --orders-rate   orders [r]ate (1/sec), [kKmM] supported)\n"
 	       "-n, --orders-num    total orders [n]umber, [kKmM] supported)\n"
@@ -805,7 +811,7 @@ static void usage(int status, char *msg)
 }
 
 static struct option const long_options[] = {
-	{"symbols", required_argument, 0, 's'},
+	{"symbol-file", required_argument, 0, 's'},
 	{"run-time", required_argument, 0, 't'},
 	{"orders-rate", required_argument, 0, 'r'},
 	{"orders-num", required_argument, 0, 'n'},
@@ -835,6 +841,7 @@ int main(int argc, char **argv)
 {
 	int ch, longindex, err;
 	struct itchygen_info itchygen;
+	FILE *sym_file = NULL;
 	int num_rate_args = 0;
 	int num_prob_args = 0;
 	unsigned int run_time = 0;
@@ -848,6 +855,7 @@ int main(int argc, char **argv)
 	uint8_t mac[8];
 	in_addr_t ip_addr;
 	uint16_t port;
+	char line[128];
 
 	if (argc < 2)
 		usage(0, NULL);
@@ -862,9 +870,16 @@ int main(int argc, char **argv)
 
 		switch (ch) {
 		case 's':	/* number of symbols */
-			err = str_to_int_gt(optarg, itchygen.num_symbols, 0);
-			if (err)
-				bad_optarg(err, ch, optarg);
+			sym_file = fopen(optarg, "r");
+			if (sym_file) {
+				while (fgets(line, sizeof(line), sym_file) !=
+				       NULL) {
+					itchygen.num_symbols++;
+				}
+			} else {
+				perror(optarg);
+				bad_optarg(EINVAL, ch, optarg);
+			}
 			break;
 		case 'r':	/* orders rate */
 			if (orders_rate)
@@ -1014,8 +1029,8 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (!itchygen.num_symbols)
-		usage(EINVAL, "error: number of symbols not supplied");
+	if (!sym_file)
+		usage(EINVAL, "error: ymbols file name not supplied");
 
 	if (!itchygen.time2update)
 		usage(EINVAL, "error: mean time to next update not supplied");
@@ -1103,8 +1118,21 @@ int main(int argc, char **argv)
 		       itchygen.num_symbols);
 		exit(ENOMEM);
 	}
-	for (i = 0; i < itchygen.num_symbols; i++)
-		generate_symbol_name(&itchygen.symbol[i]);
+	/* for (i = 0; i < itchygen.num_symbols; i++)
+	   generate_symbol_name(&itchygen.symbol[i], NULL); */
+	i = 0;
+	fseek(sym_file, 0, SEEK_SET);
+	while (fgets(line, sizeof(line), sym_file) != NULL) {
+		char *comma;
+
+		comma = strchr(line, ',');
+		if (comma) {
+			*comma = '\0';
+			generate_symbol_name(&itchygen.symbol[i++], line);
+		}
+	}
+	itchygen.num_symbols = i;
+	fclose(sym_file);
 
 	itchygen.order_type_prob_int[ORDER_ADD].pcts_total = 0;
 	itchygen.order_type_prob_int[ORDER_EXEC].pcts_total = prob_exec;
