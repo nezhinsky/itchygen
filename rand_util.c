@@ -90,13 +90,21 @@ size_t rand_index(struct rand_interval * ri, size_t n)
 
 int rand_int_range(int from, int to)
 {
+	int ret_val = from;
+	long int num_intervals = 1 + to - from;
 	long int rand_num = random();
-	long int rand_interval;
+	long int rand_interval_sz;
+	int interval_index;
 
-	assert(to > from);
-	rand_interval = RAND_MAX / (1 + to - from);
+	assert(num_intervals > 0);
 
-	return from + (int)(rand_num / rand_interval);
+	rand_interval_sz = RAND_MAX / num_intervals;
+	interval_index = rand_num / rand_interval_sz;
+	if (interval_index == num_intervals)
+		interval_index --;
+	ret_val += interval_index;
+
+	return ret_val;
 }
 
 int rand_char_capital(void)
