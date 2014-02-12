@@ -86,21 +86,6 @@ struct trade_symbol {
 	int auto_gen;
 };
 
-static struct trade_symbol *symbol;
-
-struct rand_interval symbol_len_rand_int[2]; /* len: 3, 4 */
-
-static void generate_symbol_name(struct trade_symbol *symbol)
-{
-	int len = 3 + rand_index(symbol_len_rand_int, 2);
-	int i;
-
-	for (i = 0; i < len; i++)
-		symbol->name[i] = rand_char_capital();
-	symbol->name[len] = '\0';
-	symbol->auto_gen = 1;
-}
-
 enum trade_outcom_type {
 	TRADE_EXEC = 0,
 	TRADE_CANCEL,
@@ -123,25 +108,90 @@ static const char *trade_outcome_str(enum trade_outcom_type type)
 	}
 }
 
-struct rand_interval trade_outcome_int[TRADE_NUM_OUTCOMES];
+struct itchygen_info {
+	unsigned int num_symbols;
+	struct trade_symbol *symbol;
+	unsigned int run_time;
+	unsigned long orders_rate;
+	unsigned long num_orders;
+	int num_rate_args;
+	unsigned int time2update;
+	int prob_exec;
+	int prob_cancel;
+	int prob_replace;
+	int num_prob_args;
+	int debug_mode;
+	int verbose_mode;
+	unsigned int rand_seed;
+	struct rand_interval trade_outcome_int[TRADE_NUM_OUTCOMES];
+};
 
-static void print_rand_trade(int n, unsigned int num_symbols,
-	unsigned long trades_rate,
-	unsigned long exec_mean_time)
+static void print_params(struct itchygen_info *itchigen)
 {
+	printf("itchygen params:\n"
+		"\tsymbols: %d\n\trun time:%d\n\trate: %ld orders/sec\n"
+		"\torders num: %ld\n\tmean time to update: %d msec\n"
+		"\tprobability of exec: %d%% cancel: %d%% update: %d%%\n"
+		"\tdbg: %s, verbose: %s\n\tseed: %d\n\n",
+		itchigen->num_symbols, itchigen->run_time,
+		itchigen->orders_rate, itchigen->num_orders,
+		itchigen->time2update, itchigen->prob_exec,
+		itchigen->prob_cancel, itchigen->prob_replace,
+		itchigen->debug_mode ? "on" : "off",
+		itchigen->verbose_mode ? "on" : "off",
+		itchigen->rand_seed);
+
+	if (itchigen->run_time * itchigen->orders_rate != itchigen->num_orders)
+		printf("WARNING: time * rate != orders, generation will stop "
+		"when either time or orders run out\n\n");
+}
+
+static struct rand_interval symbol_len_rand_int[2]; /* len: 3, 4 */
+
+static void generate_symbol_name(struct trade_symbol *symbol)
+{
+	
+	int len = 3 + rand_index(symbol_len_rand_int, 2);
+	int i;
+
+	for (i = 0; i < len; i++)
+		symbol->name[i] = rand_char_capital();
+	symbol->name[len] = '\0';
+	symbol->auto_gen = 1;
+}
+
+static void print_rand_trade(int n, struct itchygen_info *itchygen)
+{
+	unsigned int num_symbols = itchygen->num_symbols;
+	unsigned long trades_rate = itchygen->orders_rate;
+	unsigned long exec_mean_time = itchygen->time2update;
 	double trade_time, exec_time;
 	int si;
 
-	si = rand_int_range(0, num_symbols-1);
+	si = rand_int_range(0, num_symbols - 1);
 
 	trade_time = rand_exp_time_by_rate((double) trades_rate);
 	exec_time = rand_exp_time_by_mean(0.001 * (double) exec_mean_time);
 
 	printf("%d: %s %s inter-trade:%ld.%09ld exec:%ld.%09ld\n",
-		n, symbol[si].name,
-		trade_outcome_str(rand_index(trade_outcome_int, TRADE_NUM_OUTCOMES)),
+		n, itchygen->symbol[si].name,
+		trade_outcome_str(rand_index(itchygen->trade_outcome_int, TRADE_NUM_OUTCOMES)),
 		dtime_to_sec(trade_time), dtime_to_nsec(trade_time),
 		dtime_to_sec(exec_time), dtime_to_nsec(exec_time));
+}
+
+static void generate_orders(struct itchygen_info *itchygen)
+{
+	struct rand_interval *outcome = itchygen->trade_outcome_int;
+	int i;
+
+	outcome[TRADE_EXEC].pcts_total = itchygen->prob_exec;
+	outcome[TRADE_CANCEL].pcts_total = itchygen->prob_cancel;
+	outcome[TRADE_UPDATE].pcts_total = itchygen->prob_replace;
+	rand_interval_init(outcome, TRADE_NUM_OUTCOMES);
+	
+	for (i = 0; i < itchygen->num_orders; i++)
+		print_rand_trade(i, itchygen);
 }
 
 static void bad_optarg(int err, int ch, char *optarg)
@@ -162,15 +212,19 @@ static void usage(int status, char *msg)
 
 	printf("ITCH stream generator, version %s\n\n"
 		"Usage: %s [OPTION]\n"
-		"-S, --symbols       total number of symbols in use\n"
-		"-r, --rate          event rate (evts/sec), suffixes [kKmM] supported)\n"
-		"-t, --mean-time     mean time of trade execution or termination (msec)\n"
+		"-s, --symbols       total number of [s]ymbols in use\n"
+		"-t, --run-time      total [t]ime for generated orders\n"
+		"-r, --orders-rate   orders [r]ate (1/sec), [kKmM] supported)\n"
+		"-n, --orders-num    total orders [n]umber, [kKmM] supported)\n"
+		"* * * missing -t/-r/-n inferred by: t * r = n\n\n"
+		"-u, --time2update   mean time to order's [u]pdate (msec)\n"
 		"-E, --prob-exec     probability of execution (0%%-100%%)\n"
 		"-C, --prob-cancel   probability of cancel (0%%-100%%)\n"
-		"-U, --prob-update   probability of update (0%%-100%%)\n"
-		"      missing -E, -C, -U inferred by: E + C + U = 100%%\n\n"
-		"-R, --rand-seed     set this seed before starting work\n"
+		"-R, --prob-replace  probability of replace (0%%-100%%)\n"
+		"* * * missing -E/-C/-R inferred by: E + C + R = 100%%\n\n"
+		"-S, --rand-seed     set this seed before starting work\n"
 		"-d, --debug         produce debug information\n"
+		"-v, --verbose       produce verbose output\n"
 		"-V, --version       print version and exit\n"
 		"-h, --help          display this help and exit\n",
 		itchygen_version, program_name);
@@ -178,36 +232,40 @@ static void usage(int status, char *msg)
 }
 
 static struct option const long_options[] = {
-	{"symbols", required_argument, 0, 'S'},
-	{"rate", required_argument, 0, 'r'},
-	{"mean-time", required_argument, 0, 't'},
+	{"symbols", required_argument, 0, 's'},
+	{"run-time", required_argument, 0, 't'},
+	{"orders-rate", required_argument, 0, 'r'},
+	{"orders-num", required_argument, 0, 'n'},
+	{"time2update", required_argument, 0, 'u'},
 	{"prob-exec", required_argument, 0, 'E'},
 	{"prob-cancel", required_argument, 0, 'C'},
-	{"prob-update", required_argument, 0, 'U'},
-	{"rand-seed", required_argument, 0, 'R'},
+	{"prob-replace", required_argument, 0, 'R'},
+	{"rand-seed", required_argument, 0, 'S'},
 	{"debug", no_argument, 0, 'd'},
+	{"verbose", no_argument, 0, 'v'},
 	{"version", no_argument, 0, 'V'},
 	{"help", no_argument, 0, 'h'},
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "S:r:t:E:C:U:R:dVh";
+static char *short_options = "s:t:r:n:u:E:C:R:S:dvVh";
 
 int main(int argc, char **argv)
 {
 	int ch, longindex, err;
-	unsigned int num_symbols = 0;
-	unsigned long evt_rate = 0;
-	unsigned int mean_trade_time = 0;
-	int prob_exec = -1, prob_cancel = -1, prob_update = -1;
+	struct itchygen_info itchygen;
+	int num_rate_args = 0;
 	int num_prob_args = 0;
-	int debug_mode = 0;
+	unsigned int run_time = 0;
+	unsigned long orders_rate = 0;
+	unsigned long num_orders = 0;
+	int prob_exec = -1;
+	int prob_cancel = -1;
+	int prob_replace = -1;	
 	int use_seed = 0;
-	unsigned int rand_seed = 0;
 	int mult, suffix, i;
 
-	if (argc == 1)
-		usage(EINVAL, "error: no arguments supplied");
+	memset(&itchygen, 0, sizeof(itchygen));
 
 	opterr = 0; /* global getopt variable */
 	for (;;) {
@@ -217,12 +275,12 @@ int main(int argc, char **argv)
 			break;
 
 		switch (ch) {
-		case 'S':
-			err = str_to_int_gt(optarg, num_symbols, 0);
+		case 's': /* number of symbols */
+			err = str_to_int_gt(optarg, itchygen.num_symbols, 0);
 			if (err)
 				bad_optarg(err, ch, optarg);
 			break;
-		case 'r': /* events rate */
+		case 'r': /* orders rate */
 			mult = 1;
 
 			suffix = optarg[strlen(optarg) - 1];
@@ -233,13 +291,37 @@ int main(int argc, char **argv)
 					mult = 1000000;
 			}
 
-			err = str_to_int_gt(optarg, evt_rate, 0);
+			err = str_to_int_gt(optarg, orders_rate, 0);
 			if (err)
 				bad_optarg(err, ch, optarg);
-			evt_rate *= mult;
+			orders_rate *= mult;
+			num_rate_args++;
 			break;
-		case 't': /* mean time to execution. msec */
-			err = str_to_int_gt(optarg, mean_trade_time, 0);
+		case 't': /* run time */
+			err = str_to_int_gt(optarg, run_time, 0);
+			if (err)
+				bad_optarg(err, ch, optarg);
+			num_rate_args++;
+			break;
+		case 'n': /* total number of orders */
+			mult = 1;
+
+			suffix = optarg[strlen(optarg) - 1];
+			if (!isdigit(suffix)) {
+				if (suffix == 'k' || suffix == 'K')
+					mult = 1000;
+				else if (suffix == 'm' || suffix == 'M')
+					mult = 1000000;
+			}
+
+			err = str_to_int_gt(optarg, num_orders, 0);
+			if (err)
+				bad_optarg(err, ch, optarg);
+			num_orders *= mult;
+			num_rate_args++;
+			break;
+		case 'u': /* mean time to next update message, msec */
+			err = str_to_int_gt(optarg, itchygen.time2update, 0);
 			if (err)
 				bad_optarg(err, ch, optarg);
 			break;
@@ -259,22 +341,25 @@ int main(int argc, char **argv)
 				bad_optarg(err, ch, optarg);
 			num_prob_args++;
 			break;
-		case 'U': /* probability of update */
-			if (prob_update >= 0)
+		case 'R': /* probability of replace */
+			if (prob_replace >= 0)
 				usage(E2BIG, "error: -U supplied twice");
-			err = str_to_int_range(optarg, prob_update, 0, 100);
+			err = str_to_int_range(optarg, prob_replace, 0, 100);
 			if (err)
 				bad_optarg(err, ch, optarg);
 			num_prob_args++;
 			break;
-		case 'R':
-			err = str_to_int_gt(optarg, rand_seed, 0);
+		case 'S': /* random seed */
+			err = str_to_int_gt(optarg, itchygen.rand_seed, 0);
 			if (err)
 				bad_optarg(err, ch, optarg);
 			use_seed = 1;
 			break;
 		case 'd':
-			debug_mode = 1;
+			itchygen.debug_mode = 1;
+			break;
+		case 'v':
+			itchygen.verbose_mode = 1;
 			break;
 		case 'V':
 			version();
@@ -291,65 +376,77 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (!evt_rate)
-		usage(EINVAL, "error: event rate not supplied");
-	if (!mean_trade_time)
-		usage(EINVAL, "error: mean trade time not supplied");
-	if (!num_symbols)
+	if (!itchygen.num_symbols)
 		usage(EINVAL, "error: number of symbols not supplied");
+
+	if (!itchygen.time2update)
+		usage(EINVAL, "error: mean time to next update not supplied");
+
+	assert(num_rate_args < 4);
+	if (num_rate_args == 3)
+		assert(run_time && orders_rate && num_orders);
+	else if (num_rate_args == 2) {
+		if (run_time && num_orders) {
+			orders_rate = num_orders / run_time;
+			if (!orders_rate)
+				orders_rate = 1;
+		} else if (run_time && orders_rate) {
+			num_orders = run_time * orders_rate;
+		} else if (orders_rate && num_orders) {
+			run_time = num_orders / orders_rate;
+			if (!run_time)
+				run_time = 1;
+		}
+	} else
+		usage(EINVAL, "error: you should supply at least "
+			"2 of 3 (-t/-n/-r) arguments");
+
+	itchygen.num_orders = num_orders;
+	itchygen.run_time = run_time;
+	itchygen.orders_rate = orders_rate;
 
 	assert(num_prob_args < 4);
 	if (num_prob_args == 3) {
-		assert(prob_exec >= 0 && prob_cancel >= 0 && prob_update >= 0);
-		if (prob_exec + prob_cancel + prob_update != 100)
+		assert(prob_exec >= 0 && prob_cancel >= 0 && prob_replace >= 0);
+		if (prob_exec + prob_cancel + prob_replace != 100)
 			usage(EINVAL, "error: 3 probability arguments "
-			"(-E,-C,-U) do not sum up to 100%%");
+			"(-E,-C,-R) do not sum up to 100%%");
 	} else if (num_prob_args == 2) {
 		if (prob_exec < 0) {
-			assert(prob_cancel >= 0 && prob_update >= 0);
-			prob_exec = 100 - (prob_cancel + prob_update);
+			assert(prob_cancel >= 0 && prob_replace >= 0);
+			prob_exec = 100 - (prob_cancel + prob_replace);
 		} else if (prob_cancel < 0) {
-			assert(prob_exec >= 0 && prob_update >= 0);
-			prob_cancel = 100 - (prob_exec + prob_update);
-		} else if (prob_update < 0) {
+			assert(prob_exec >= 0 && prob_replace >= 0);
+			prob_cancel = 100 - (prob_exec + prob_replace);
+		} else if (prob_replace < 0) {
 			assert(prob_cancel >= 0 && prob_exec >= 0);
-			prob_update = 100 - (prob_exec + prob_cancel);
+			prob_replace = 100 - (prob_exec + prob_cancel);
 		}
 	} else
-		usage(EINVAL,
-		"error: you should supply at least 2 of 3 probability arguments");
+		usage(EINVAL, "error: you should supply at least "
+			"2 of 3 probability (-E/-C/-R) arguments");
+	
+	itchygen.prob_exec = prob_exec;
+	itchygen.prob_cancel = prob_cancel;
+	itchygen.prob_replace = prob_replace;
 
-	rand_util_init(use_seed, &rand_seed);
+	rand_util_init(use_seed, &itchygen.rand_seed);
 
-	printf("itchygen args:\n"
-		"\tsymbols: %d\n\trate: %ld evt/sec\n\ttime: %d msec\n"
-		"\tprobability of exec: %d%% cancel: %d%% update: %d%%\n"
-		"\tseed: %d\n"
-		"\tdbg: %s\n",
-		num_symbols, evt_rate, 
-		mean_trade_time, prob_exec, prob_cancel, prob_update,
-		rand_seed, debug_mode ? "on" : "off");
-
-	trade_outcome_int[TRADE_EXEC].pcts_total = prob_exec;
-	trade_outcome_int[TRADE_CANCEL].pcts_total = prob_cancel;
-	trade_outcome_int[TRADE_UPDATE].pcts_total = prob_update;
-	rand_interval_init(trade_outcome_int, TRADE_NUM_OUTCOMES);
-
-	symbol = calloc(num_symbols, sizeof(*symbol));
-	if (!symbol) {
-		printf("failed to alloc %d symbol names\n", num_symbols);
+	itchygen.symbol = calloc(itchygen.num_symbols, sizeof(*itchygen.symbol));
+	if (!itchygen.symbol) {
+		printf("failed to alloc %d symbol names\n", itchygen.num_symbols);
 		exit(ENOMEM);
 	}
+
+	print_params(&itchygen);
 
 	symbol_len_rand_int[0].pcts_total = 80;
 	symbol_len_rand_int[1].pcts_total = 20;
 	rand_interval_init(symbol_len_rand_int, 2);
-
-	for (i = 0; i < num_symbols; i++)
-		generate_symbol_name(&symbol[i]);
+	for (i = 0; i < itchygen.num_symbols; i++)
+		generate_symbol_name(&itchygen.symbol[i]);
 	
-	for (i = 0; i < 10; i++)
-		print_rand_trade(i, num_symbols, evt_rate, mean_trade_time);
+	generate_orders(&itchygen);
 
 	return err;
 }
