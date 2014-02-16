@@ -14,9 +14,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <sys/queue.h>
 
 #include "itch_proto.h"
 #include "rand_util.h"
+#include "ulist.h"
 
 static void usage(int status, char *msg);
 
@@ -83,30 +85,68 @@ static void version(void)
 
 struct trade_symbol {
 	char name[MAX_SYMBOL_NAME];
+	unsigned int min_price;
+	unsigned int max_price;
 	int auto_gen;
 };
 
-enum trade_outcom_type {
-	TRADE_EXEC = 0,
-	TRADE_CANCEL,
-	TRADE_UPDATE,
+enum order_event_type {	
+	ORDER_ADD = 0,
+	ORDER_EXEC,
+	ORDER_CANCEL,
+	ORDER_REPLACE,
 
-	TRADE_NUM_OUTCOMES,
+	MODIFY_ORDER_NUM_TYPES,
 };
 
-static const char *trade_outcome_str(enum trade_outcom_type type)
+static const char *trade_outcome_str(enum order_event_type type)
 {
 	switch (type) {
-	case TRADE_EXEC:
+	case ORDER_ADD:
+		return "ADD";
+	case ORDER_EXEC:
 		return "EXEC";
-	case TRADE_CANCEL:
+	case ORDER_CANCEL:
 		return "CANCEL";
-	case TRADE_UPDATE:
-		return "UPDATE";
+	case ORDER_REPLACE:
+		return "REPLACE";
 	default:
 		return "UNKNOWN";
 	}
 }
+
+struct order_event {
+	struct ulist_node time_node;
+	enum order_event_type type;
+	struct order_event *prev_event;
+	struct trade_symbol *symbol;
+	double time;
+	unsigned long long ref_num;
+	unsigned int remain_shares;
+	unsigned int cur_price;
+	union {
+		struct {			
+			unsigned int shares;
+			unsigned int price;
+			int buy; /* 1 - buy, 0 - sell */ 
+		} add;
+		struct {
+			struct order_event *order;
+			unsigned int shares; /* executed */
+			unsigned int price; /* at price */
+		} exec;
+		struct {
+			struct order_event *order;
+			unsigned int shares; /* canceled */
+		} cancel;
+		struct {			
+			struct order_event *order;
+			unsigned int shares; /* new quantity */
+			unsigned int price; /* new price */
+			unsigned long long orig_ref_num;
+		} replace;
+	};
+};
 
 struct itchygen_info {
 	unsigned int num_symbols;
@@ -116,27 +156,29 @@ struct itchygen_info {
 	unsigned long num_orders;
 	int num_rate_args;
 	unsigned int time2update;
-	int prob_exec;
-	int prob_cancel;
-	int prob_replace;
 	int num_prob_args;
 	int debug_mode;
 	int verbose_mode;
 	unsigned int rand_seed;
-	struct rand_interval trade_outcome_int[TRADE_NUM_OUTCOMES];
+	unsigned long long cur_ref_num;
+	double cur_time;
+	struct ulist_head time_list;
+	struct rand_interval order_type_prob_int[MODIFY_ORDER_NUM_TYPES];
 };
 
 static void print_params(struct itchygen_info *itchigen)
 {
 	printf("itchygen params:\n"
-		"\tsymbols: %d\n\trun time:%d\n\trate: %ld orders/sec\n"
+		"\tsymbols: %d\n\trun time: %d sec\n\trate: %ld orders/sec\n"
 		"\torders num: %ld\n\tmean time to update: %d msec\n"
-		"\tprobability of exec: %d%% cancel: %d%% update: %d%%\n"
+		"\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
 		"\tdbg: %s, verbose: %s\n\tseed: %d\n\n",
 		itchigen->num_symbols, itchigen->run_time,
 		itchigen->orders_rate, itchigen->num_orders,
-		itchigen->time2update, itchigen->prob_exec,
-		itchigen->prob_cancel, itchigen->prob_replace,
+		itchigen->time2update,
+		itchigen->order_type_prob_int[ORDER_EXEC].pcts_total,
+		itchigen->order_type_prob_int[ORDER_CANCEL].pcts_total,
+		itchigen->order_type_prob_int[ORDER_REPLACE].pcts_total,
 		itchigen->debug_mode ? "on" : "off",
 		itchigen->verbose_mode ? "on" : "off",
 		itchigen->rand_seed);
@@ -149,49 +191,270 @@ static void print_params(struct itchygen_info *itchigen)
 static struct rand_interval symbol_len_rand_int[2]; /* len: 3, 4 */
 
 static void generate_symbol_name(struct trade_symbol *symbol)
-{
-	
-	int len = 3 + rand_index(symbol_len_rand_int, 2);
+{	
+	int len = 3 + rand_index(symbol_len_rand_int, 2); /* 3 or 4 */
 	int i;
 
 	for (i = 0; i < len; i++)
 		symbol->name[i] = rand_char_capital();
 	symbol->name[len] = '\0';
+	symbol->min_price = rand_int_range(10, 600);
+	symbol->max_price = 3 * symbol->min_price;
 	symbol->auto_gen = 1;
 }
 
-static void print_rand_trade(int n, struct itchygen_info *itchygen)
+static inline double gen_inter_order_time(struct itchygen_info *itchygen)
 {
-	unsigned int num_symbols = itchygen->num_symbols;
-	unsigned long trades_rate = itchygen->orders_rate;
-	unsigned long exec_mean_time = itchygen->time2update;
-	double trade_time, exec_time;
-	int si;
+	return rand_exp_time_by_rate((double)itchygen->orders_rate);
+}
 
-	si = rand_int_range(0, num_symbols - 1);
+static inline double gen_time_to_update(struct itchygen_info *itchygen)
+{
+	/* mean time-to-update is given in msecs */
+	return rand_exp_time_by_mean(0.001 * (double)itchygen->time2update);
+}
 
-	trade_time = rand_exp_time_by_rate((double) trades_rate);
-	exec_time = rand_exp_time_by_mean(0.001 * (double) exec_mean_time);
+static void print_order_add(struct itchygen_info *itchygen,
+	struct order_event *order)
+{
+	printf("time: %2.9f %s ADD order ref: %lld shares: %d price: %d, req: %s\n",
+		order->time, order->symbol->name, order->ref_num,
+		order->add.shares, order->add.price,
+		order->add.buy ? "BUY" : "SELL");
+}
 
-	printf("%d: %s %s inter-trade:%ld.%09ld exec:%ld.%09ld\n",
-		n, itchygen->symbol[si].name,
-		trade_outcome_str(rand_index(itchygen->trade_outcome_int, TRADE_NUM_OUTCOMES)),
-		dtime_to_sec(trade_time), dtime_to_nsec(trade_time),
-		dtime_to_sec(exec_time), dtime_to_nsec(exec_time));
+static void print_order_exec(struct itchygen_info *itchygen,
+	struct order_event *event)
+{
+	struct order_event *order = event->exec.order;
+	printf("time: %2.9f %s %s order ref: %lld shares: %d price: %d, remains: %d\n",
+		event->time, order->symbol->name,
+		trade_outcome_str(event->type),
+		order->ref_num, event->exec.shares, event->exec.price,
+		event->remain_shares);
+}
+
+static void print_order_cancel(struct itchygen_info *itchygen,
+	struct order_event *event)
+{
+	struct order_event *order = event->cancel.order;
+	printf("time: %2.9f %s %s order ref: %lld shares: %d, remains: %d\n",
+		event->time, order->symbol->name,
+		trade_outcome_str(event->type),
+		order->ref_num, event->cancel.shares,
+		event->remain_shares);
+}
+
+static void print_order_replace(struct itchygen_info *itchygen,
+	struct order_event *event)
+{
+	struct order_event *order = event->replace.order;
+	printf("time: %2.9f %s %s order ref: %lld -> %lld shares: %d price: %d\n",
+		event->time, order->symbol->name,
+		trade_outcome_str(event->type),
+		event->replace.orig_ref_num, event->ref_num,
+		event->replace.shares, event->replace.price);
+}
+
+static void order_event_print(struct itchygen_info *itchygen,
+	struct order_event *event)
+{
+	switch (event->type) {
+	case ORDER_ADD:
+		print_order_add(itchygen, event);
+		break;
+	case ORDER_EXEC:
+		print_order_exec(itchygen, event);
+		break;
+	case ORDER_CANCEL:
+		print_order_cancel(itchygen, event);
+		break;
+	case ORDER_REPLACE:
+		print_order_replace(itchygen, event);
+		break;
+	default:
+		break;
+	}
+}
+
+static void order_event_free_back(struct order_event *event)
+{
+	struct order_event *prev_event;
+
+	do {
+		prev_event = event->prev_event;
+		free(event);
+	} while ((event = prev_event) != NULL);
+}
+
+void order_event_submit(struct itchygen_info *itchygen,
+	struct order_event *event)
+{
+	printf(">>> ");
+	order_event_print(itchygen, event);
+}
+
+#define SUBMIT_UNTIL	0
+#define ENTIRE_LIST	1
+
+static void submit_time_list(struct itchygen_info *itchygen,
+	int entire_list,
+	double until_time) /* excluded */
+{
+	struct order_event *event, *next;
+
+	ulist_for_each_safe(&itchygen->time_list, event, next, time_node) {
+		if (!entire_list && event->time >= until_time)
+			return;
+		ulist_del_from(&itchygen->time_list, &event->time_node);
+		order_event_submit(itchygen, event);
+		if (!event->remain_shares)
+			order_event_free_back(event);
+	}
+}
+
+static void add_to_time_list(struct itchygen_info *itchygen,
+	struct order_event *add_event)
+{
+	struct order_event *event, *next;
+
+	if (ulist_empty(&itchygen->time_list)) {
+		ulist_add(&itchygen->time_list,
+			&add_event->time_node);
+		return;
+	}
+
+	event = ulist_entry(&itchygen->time_list.n, struct order_event, time_node);
+	if (add_event->time < event->time) {
+		/* less than first - add as head */
+		ulist_add(&itchygen->time_list, &add_event->time_node);
+		return;
+	}
+
+	ulist_for_each_safe(&itchygen->time_list, event, next, time_node) {
+		if (&next->time_node == &itchygen->time_list.n) {
+			/* end of list - add as tail */
+			ulist_add_tail(&itchygen->time_list,
+				&add_event->time_node);
+			return;
+		} else if (add_event->time < next->time) {
+			/* place found - add after the current node */
+			ulist_insert(&itchygen->time_list,
+				&add_event->time_node,
+				&event->time_node);
+			return;
+		}
+	}
+	printf("add_event not on the list, or the list is corrupted");
+	assert(0);
+}
+
+static struct order_event *generate_new_order(struct itchygen_info *itchygen)
+{
+	struct order_event *order;
+	int symbol_index;
+	
+	order = malloc(sizeof(*order));
+	if (!order)
+		return NULL;
+
+	order->type = ORDER_ADD;
+	order->prev_event = NULL;
+	symbol_index = rand_int_range(0, itchygen->num_symbols - 1);
+	order->symbol = &itchygen->symbol[symbol_index];	
+	order->time = itchygen->cur_time;
+	order->ref_num = ++itchygen->cur_ref_num;
+	order->add.buy = rand_int_range(0, 1);
+	order->add.shares = 10 * rand_int_range(1, 250);
+	order->add.price = rand_int_range(order->symbol->min_price,
+				order->symbol->max_price);
+	
+	order->remain_shares = order->add.shares;
+	order->cur_price = order->add.price;
+	return order;
+}
+
+static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
+	struct order_event *order, /* original order */
+	struct order_event *prev_event)
+{
+	struct order_event *event;
+
+	event = malloc(sizeof(*event));
+	if (!event)
+		return NULL;
+
+	event->type = rand_index(itchygen->order_type_prob_int,
+				 MODIFY_ORDER_NUM_TYPES);
+	event->prev_event = prev_event;
+	event->symbol = order->symbol;
+	event->time = order->time + gen_time_to_update(itchygen);
+	event->ref_num = order->ref_num;
+	switch (event->type) {
+	case ORDER_EXEC:
+		event->exec.order = order;
+		event->exec.shares = order->remain_shares; /* ToDo: random partial shares */
+		event->exec.price = order->cur_price - rand_int_range(0, 9);
+
+		event->remain_shares = order->remain_shares - event->exec.shares;
+		break;
+	case ORDER_CANCEL:
+		event->cancel.order = order;
+		event->cancel.shares = order->remain_shares;  /* ToDo: random partial shares */
+
+		event->remain_shares = order->remain_shares - event->cancel.shares;
+		break;
+	case ORDER_REPLACE:
+		event->replace.order = order;
+		event->replace.shares = 10 * rand_int_range(1, 250);
+		event->replace.price = rand_int_range(order->symbol->min_price,
+					order->symbol->max_price);
+		event->replace.orig_ref_num = order->ref_num;
+		event->ref_num = ++itchygen->cur_ref_num;
+
+		event->remain_shares = event->replace.shares;
+		event->cur_price = event->replace.price;
+		break;
+	default:
+		assert(event->type < MODIFY_ORDER_NUM_TYPES);
+		break;
+	}
+	return event;
 }
 
 static void generate_orders(struct itchygen_info *itchygen)
-{
-	struct rand_interval *outcome = itchygen->trade_outcome_int;
-	int i;
+{	
+	struct order_event *order, *event, *prev_event;
+	int n_order;
 
-	outcome[TRADE_EXEC].pcts_total = itchygen->prob_exec;
-	outcome[TRADE_CANCEL].pcts_total = itchygen->prob_cancel;
-	outcome[TRADE_UPDATE].pcts_total = itchygen->prob_replace;
-	rand_interval_init(outcome, TRADE_NUM_OUTCOMES);
-	
-	for (i = 0; i < itchygen->num_orders; i++)
-		print_rand_trade(i, itchygen);
+	itchygen->cur_time = 0.0;
+
+	for (n_order = 0; n_order < itchygen->num_orders; n_order++) {
+		itchygen->cur_time += gen_inter_order_time(itchygen);
+		/* submit all events scheduled until now */
+		submit_time_list(itchygen, SUBMIT_UNTIL, itchygen->cur_time);
+
+		order = generate_new_order(itchygen);
+		assert(order != NULL);
+
+		add_to_time_list(itchygen, order);
+		order_event_print(itchygen, order);
+
+		prev_event = order;
+		do {
+			event = generate_modify_event(itchygen, order, prev_event);
+			assert(event != NULL);
+
+			add_to_time_list(itchygen, event);
+			order_event_print(itchygen, event);
+			if (event->type == ORDER_REPLACE)
+				order = event;
+
+			prev_event = event;
+		} while (event->remain_shares);
+	}
+	/* submit entire list */
+	submit_time_list(itchygen, ENTIRE_LIST, 0.0);
 }
 
 static void bad_optarg(int err, int ch, char *optarg)
@@ -265,8 +528,10 @@ int main(int argc, char **argv)
 	int use_seed = 0;
 	int mult, suffix, i;
 
-	memset(&itchygen, 0, sizeof(itchygen));
+	if (argc < 2)
+		usage(0, NULL);
 
+	memset(&itchygen, 0, sizeof(itchygen));
 	opterr = 0; /* global getopt variable */
 	for (;;) {
 		ch = getopt_long(argc, argv, short_options, long_options,
@@ -425,27 +690,30 @@ int main(int argc, char **argv)
 	} else
 		usage(EINVAL, "error: you should supply at least "
 			"2 of 3 probability (-E/-C/-R) arguments");
-	
-	itchygen.prob_exec = prob_exec;
-	itchygen.prob_cancel = prob_cancel;
-	itchygen.prob_replace = prob_replace;
 
 	rand_util_init(use_seed, &itchygen.rand_seed);
 
+	symbol_len_rand_int[0].pcts_total = 80;
+	symbol_len_rand_int[1].pcts_total = 20;
+	rand_interval_init(symbol_len_rand_int, 2);
+	
 	itchygen.symbol = calloc(itchygen.num_symbols, sizeof(*itchygen.symbol));
 	if (!itchygen.symbol) {
 		printf("failed to alloc %d symbol names\n", itchygen.num_symbols);
 		exit(ENOMEM);
 	}
-
-	print_params(&itchygen);
-
-	symbol_len_rand_int[0].pcts_total = 80;
-	symbol_len_rand_int[1].pcts_total = 20;
-	rand_interval_init(symbol_len_rand_int, 2);
 	for (i = 0; i < itchygen.num_symbols; i++)
 		generate_symbol_name(&itchygen.symbol[i]);
-	
+
+	itchygen.order_type_prob_int[ORDER_ADD].pcts_total = 0;
+	itchygen.order_type_prob_int[ORDER_EXEC].pcts_total = prob_exec;
+	itchygen.order_type_prob_int[ORDER_CANCEL].pcts_total = prob_cancel;
+	itchygen.order_type_prob_int[ORDER_REPLACE].pcts_total = prob_replace;
+	rand_interval_init(itchygen.order_type_prob_int, MODIFY_ORDER_NUM_TYPES);
+
+	ulist_head_init(&itchygen.time_list);
+	print_params(&itchygen);
+
 	generate_orders(&itchygen);
 
 	return err;

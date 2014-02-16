@@ -79,7 +79,7 @@ int rand_char_capital(void)
 	return rand_int_range('A', 'Z');
 }
 
-#define RAND_MAX_FLOAT  ((double)RAND_MAX)
+const double RAND_MAX_FLOAT = 1.0 + (double)RAND_MAX;
 
 double rand_uniform_one(void)
 {
@@ -99,10 +99,10 @@ double rand_exp_time_by_mean(double mean)
 
 unsigned long dtime_to_sec(double dtime)
 {
-	return(unsigned long) trunc(dtime);
+	return (unsigned long) trunc(dtime);
 }
 
 unsigned long dtime_to_nsec(double dtime)
 {
-	return(unsigned long) trunc(1.0e10 * dtime);
+	return (unsigned long) trunc(1.0e10 * (dtime - trunc(dtime)));
 }

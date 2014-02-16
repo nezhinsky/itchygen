@@ -1,6 +1,6 @@
 sbindir ?= $(PREFIX)/sbin
 
-ITCHYGEN_OBJS += itchygen.o rand_util.o
+ITCHYGEN_OBJS += itchygen.o rand_util.o ulist.o
 
 # include dirs
 INCLUDES += -I.
