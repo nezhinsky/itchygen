@@ -5,8 +5,7 @@
 
 static void *corrupt(const char *abortstr,
 		     const struct ulist_node *head,
-		     const struct ulist_node *node,
-		     unsigned int count)
+		     const struct ulist_node *node, unsigned int count)
 {
 	if (abortstr) {
 		fprintf(stderr,
@@ -18,7 +17,7 @@ static void *corrupt(const char *abortstr,
 }
 
 struct ulist_node *ulist_check_node(const struct ulist_node *node,
-				  const char *abortstr)
+				    const char *abortstr)
 {
 	const struct ulist_node *p, *n;
 	int count = 0;

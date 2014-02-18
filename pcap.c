@@ -32,8 +32,10 @@ struct ipv4_pseudo_hdr {
 } __attribute__ ((packed));
 
 static FILE *fpcap;
+struct endpoint_addr _dst, _src;
 
-int pcap_file_open(char *fname)
+int pcap_file_open(char *fname,
+		   struct endpoint_addr *dst, struct endpoint_addr *src)
 {
 	size_t n;
 	struct pcap_global_hdr ghdr = {
@@ -55,6 +57,10 @@ int pcap_file_open(char *fname)
 		fclose(fpcap);
 		return errno;
 	}
+
+	_dst = *dst;
+	_src = *src;
+
 	return 0;
 }
 
@@ -83,16 +89,13 @@ static uint16_t ip_checksum_final(uint32_t sum)
 	return ~sum;
 }
 
-static void create_udp_packet(struct udp_hdrs *h,
-			      void *data, size_t len,
-			      in_addr_t src_ip, in_addr_t dst_ip,
-			      uint16_t src_port, uint16_t dst_port)
+static void create_udp_packet(struct udp_hdrs *h, void *data, size_t len)
 {
 	struct ipv4_pseudo_hdr pseudo_iphdr;
 	uint32_t udp_sum;
 
-	memset(h->ether.ether_dhost, 0, ETH_ALEN);
-	memset(h->ether.ether_shost, 0, ETH_ALEN);
+	memcpy(h->ether.ether_dhost, _dst.mac, ETH_ALEN);
+	memcpy(h->ether.ether_shost, _src.mac, ETH_ALEN);
 	h->ether.ether_type = htons(ETHERTYPE_IP);
 
 	h->ip.ihl = sizeof(h->ip) / sizeof(uint32_t);
@@ -102,23 +105,23 @@ static void create_udp_packet(struct udp_hdrs *h,
 	h->ip.tot_len = htons(sizeof(h->ip) + sizeof(h->udp) + len);
 	h->ip.id = 0;		/* ID sequence number, single datagram - unused */
 	h->ip.frag_off = htons(IP_DF);	/* flags:3 = Don't Frag, frag offset:13 = 0 */
-	h->ip.ttl = 16;
+	h->ip.ttl = 64;
 	h->ip.protocol = IPPROTO_UDP;
-	h->ip.saddr = src_ip;
-	h->ip.daddr = dst_ip;
+	h->ip.saddr = _src.ip_addr;
+	h->ip.daddr = _dst.ip_addr;
 	h->ip.check = 0;
 	h->ip.check =
 	    ip_checksum_final(ip_checksum_step(0, &h->ip, sizeof(h->ip)));
 
-	pseudo_iphdr.saddr = src_ip;
-	pseudo_iphdr.daddr = dst_ip;
+	pseudo_iphdr.saddr = _src.ip_addr;
+	pseudo_iphdr.daddr = _dst.ip_addr;
 	pseudo_iphdr.zero = 0;
 	pseudo_iphdr.proto = 0x11;
 	pseudo_iphdr.udp_len = htons(sizeof(h->udp) + len);
 	udp_sum = ip_checksum_step(0, &pseudo_iphdr, sizeof(pseudo_iphdr));
 
-	h->udp.source = htons(src_port);
-	h->udp.dest = htons(dst_port);
+	h->udp.source = htons(_src.port);
+	h->udp.dest = htons(_dst.port);
 	/* UDP header + datalen */
 	h->udp.len = htons(sizeof(h->udp) + len);
 	h->udp.check = 0;	/* udp checksum */
@@ -131,7 +134,7 @@ static void create_udp_packet(struct udp_hdrs *h,
 int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 			 void *data, size_t len)
 {
-	size_t n;	
+	size_t n;
 	struct pcap_record_hdr pcap_rechdr = {
 		.ts_sec = tsec,
 		.ts_usec = tusec,
@@ -139,21 +142,17 @@ int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 		.orig_len = sizeof(struct udp_hdrs) + len,
 	};
 	struct udp_hdrs udp_hdrs;
-	
+
 	n = fwrite(&pcap_rechdr, sizeof(pcap_rechdr), 1, fpcap);
 	if (n < 1)
 		goto add_rec_failed;
 
-	create_udp_packet(&udp_hdrs,
-		data, len,
-		//inet_addr("127.0.0.1"), inet_addr("127.0.0.1"),
-		inet_addr("192.168.42.10"), inet_addr("192.168.42.122"),
-		48500, 36000);
-	
+	create_udp_packet(&udp_hdrs, data, len);
+
 	n = fwrite(&udp_hdrs, sizeof(udp_hdrs), 1, fpcap);
 	if (n < 1)
 		goto add_rec_failed;
-	
+
 	n = fwrite(data, len, 1, fpcap);
 	if (n < 1)
 		goto add_rec_failed;

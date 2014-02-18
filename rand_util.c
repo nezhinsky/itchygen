@@ -13,7 +13,7 @@
 
 static inline unsigned int rand_seed(void)
 {
-	return(unsigned int) time(NULL);
+	return (unsigned int)time(NULL);
 }
 
 void rand_util_init(int use_seed, unsigned int *seed)
@@ -50,7 +50,7 @@ static long int random100(void)
 	return rand_num;
 }
 
-size_t rand_index(struct rand_interval *ri, size_t n)
+size_t rand_index(struct rand_interval * ri, size_t n)
 {
 	long int rand_num = random100();
 	size_t i;
@@ -59,7 +59,7 @@ size_t rand_index(struct rand_interval *ri, size_t n)
 		if (rand_num <= ri[i].to_rmax)
 			return i;
 	}
-	assert(rand_num <= RMAX_100); /* should fail if reached here */
+	assert(rand_num <= RMAX_100);	/* should fail if reached here */
 	return n;
 }
 
@@ -83,31 +83,31 @@ const double RAND_MAX_FLOAT = 1.0 + (double)RAND_MAX;
 
 double rand_uniform_one(void)
 {
-	double rand_num = (double) random();
-	return(rand_num / RAND_MAX_FLOAT);
+	double rand_num = (double)random();
+	return (rand_num / RAND_MAX_FLOAT);
 }
 
 double rand_exp_time_by_rate(double rate)
 {
-	return(-log(rand_uniform_one()) / rate);
+	return (-log(rand_uniform_one()) / rate);
 }
 
 double rand_exp_time_by_mean(double mean)
 {
-	return(-log(rand_uniform_one()) * mean);
+	return (-log(rand_uniform_one()) * mean);
 }
 
 unsigned long dtime_to_sec(double dtime)
 {
-	return (unsigned long) trunc(dtime);
+	return (unsigned long)trunc(dtime);
 }
 
 unsigned long dtime_to_nsec(double dtime)
 {
-	return (unsigned long) trunc(1.0e9 * (dtime - trunc(dtime)));
+	return (unsigned long)trunc(1.0e9 * (dtime - trunc(dtime)));
 }
 
 unsigned long dtime_to_usec(double dtime)
 {
-	return (unsigned long) trunc(1.0e6 * (dtime - trunc(dtime)));
+	return (unsigned long)trunc(1.0e6 * (dtime - trunc(dtime)));
 }

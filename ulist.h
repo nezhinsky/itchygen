@@ -33,9 +33,7 @@
 #include <assert.h>
 
 __BEGIN_DECLS
-
 // #define __ULIST_DEBUG_
-
 /**
  * check_type - issue a warning or build failure if type is not correct.
  * @expr: the expression whose type we should check (not evaluated).
@@ -52,10 +50,8 @@ __BEGIN_DECLS
  *	#define set_some_value(expr)			\
  *		_set_some_value((check_type((expr), uint64_t), (expr)))
  */
-
 #define check_type(expr, type) \
 	((typeof(expr) *)0 != (type *)0)
-
 /**
  * check_types_match - issue a warning or build failure if types are not same.
  * @expr1: the first expression (not evaluated).
@@ -75,10 +71,8 @@ __BEGIN_DECLS
  *		 ((encl_type *)						\
  *		  ((char *)(mbr_ptr) - offsetof(enclosing_type, mbr))))
  */
-
 #define check_types_match(expr1, expr2)	\
 	((typeof(expr1) *)0 != (typeof(expr2) *)0)
-
 /**
  * ucontainer_of - get pointer to enclosing structure
  * @member_ptr: pointer to the structure member
@@ -108,7 +102,6 @@ __BEGIN_DECLS
 	  ((char *)(member_ptr)						\
 	   - ulist_container_off(containing_type, member))			\
 	  + check_types_match(*(member_ptr), ((containing_type *)0)->member))
-
 /**
  * ulist_container_off - get offset to enclosing structure
  * @containing_type: the type this member is within
@@ -135,7 +128,6 @@ __BEGIN_DECLS
  */
 #define ulist_container_off(containing_type, member)	\
 	offsetof(containing_type, member)
-
 /**
  * container_of_var - get pointer to enclosing structure using a variable
  * @member_ptr: pointer to the structure member
@@ -154,7 +146,6 @@ __BEGIN_DECLS
  */
 #define container_of_var(member_ptr, container_var, member) \
 	ucontainer_of(member_ptr, typeof(*container_var), member)
-
 /**
  * ulist_container_off_var - get offset of a field in enclosing structure
  * @container_var: a pointer to a container structure
@@ -167,7 +158,6 @@ __BEGIN_DECLS
  */
 #define ulist_container_off_var(var, member)		\
 	ulist_container_off(typeof(*var), member)
-
 /**
  * struct ulist_node - an entry in a doubly-linked list
  * @next: next entry (self if empty)
@@ -181,8 +171,7 @@ __BEGIN_DECLS
  *		struct ulist_node list;
  *	};
  */
-struct ulist_node
-{
+    struct ulist_node {
 	struct ulist_node *next, *prev;
 };
 
@@ -198,8 +187,7 @@ struct ulist_node
  *		unsigned int num_children;
  *	};
  */
-struct ulist_head
-{
+struct ulist_head {
 	struct ulist_node n;
 };
 
@@ -229,7 +217,8 @@ struct ulist_head
  *			printf(" -> %s\n", c->name);
  *	}
  */
-struct ulist_head *ulist_check(const struct ulist_head *h, const char *abortstr);
+struct ulist_head *ulist_check(const struct ulist_head *h,
+			       const char *abortstr);
 
 /**
  * ulist_check_node - check node of a list for consistency
@@ -248,7 +237,7 @@ struct ulist_head *ulist_check(const struct ulist_head *h, const char *abortstr)
  *	}
  */
 struct ulist_node *ulist_check_node(const struct ulist_node *n,
-				  const char *abortstr);
+				    const char *abortstr);
 
 #ifdef __ULIST_DEBUG_
 #define ulist_debug(h) ulist_check((h), __func__)
@@ -357,11 +346,11 @@ static inline void ulist_add_tail(struct ulist_head *h, struct ulist_node *n)
  *	parent->num_children++;
  */
 static inline void ulist_insert(struct ulist_head *h, struct ulist_node *n,
-        struct ulist_node *after)
+				struct ulist_node *after)
 {
 	n->next = after->next;
 	n->prev = after;
-        after->next = n;
+	after->next = n;
 	(void)ulist_debug(h);
 }
 
@@ -428,7 +417,7 @@ static inline void ulist_del_from(struct ulist_head *h, struct ulist_node *n)
 		for (i = h->n.next; i != n; i = i->next)
 			assert(i != &h->n);
 	}
-#endif /* __ULIST_DEBUG_ */
+#endif				/* __ULIST_DEBUG_ */
 
 	/* Quick test that catches a surprising number of bugs. */
 	assert(!ulist_empty(h));
@@ -597,7 +586,7 @@ static inline const void *ulist_tail_(const struct ulist_head *h, size_t off)
  *	parent->num_children = 0;
  */
 static inline void ulist_append_list(struct ulist_head *to,
-				    struct ulist_head *from)
+				     struct ulist_head *from)
 {
 	struct ulist_node *from_tail = ulist_debug(from)->n.prev;
 	struct ulist_node *to_tail = ulist_debug(to)->n.prev;
@@ -627,7 +616,7 @@ static inline void ulist_append_list(struct ulist_head *to,
  *	parent->num_children = 0;
  */
 static inline void ulist_prepend_list(struct ulist_head *to,
-				     struct ulist_head *from)
+				      struct ulist_head *from)
 {
 	struct ulist_node *from_tail = ulist_debug(from)->n.prev;
 	struct ulist_node *to_head = ulist_debug(to)->n.next;
@@ -703,7 +692,6 @@ static inline void ulist_prepend_list(struct ulist_head *to,
          nxt = ulist_node_to_off_(ulist_node_from_off_(i, (off))->next,   \
                                  (off)))
 
-
 /* Other -off variants. */
 #define ulist_entry_off(n, type, off)		\
 	((type *)ulist_node_from_off_((n), (off)))
@@ -728,6 +716,7 @@ static inline void *ulist_node_to_off_(struct ulist_node *node, size_t off)
 {
 	return (void *)((char *)node - off);
 }
+
 static inline struct ulist_node *ulist_node_from_off_(void *ptr, size_t off)
 {
 	return (struct ulist_node *)((char *)ptr + off);
@@ -743,5 +732,4 @@ static inline struct ulist_node *ulist_node_from_off_(void *ptr, size_t off)
 	 check_type(var->member, struct ulist_node))
 
 __END_DECLS
-
-#endif /* __LIST_H_ */
+#endif				/* __LIST_H_ */

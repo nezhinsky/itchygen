@@ -6,16 +6,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include <errno.h>
-#include <assert.h>
-#include <ctype.h>
-#include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
+#include <assert.h>
+#include <ctype.h>
+#include <inttypes.h>		/* PRIu64 */
 #include <endian.h>
 #include <getopt.h>
-#include <sys/queue.h>
 
 #include "itch_proto.h"
 #include "rand_util.h"
@@ -37,12 +36,12 @@ static void version(void)
  * and the natural boundaries of the integer value type (first get a 64-bit
  * value and check that it fits the range of the destination integer).
  */
-#define str_to_int(str, val)                            \
+#define str_to_int(str, val, base)                      \
 ({                                                      \
         int ret = 0;                                    \
         char *ptr;                                      \
         unsigned long long ull_val;                     \
-        ull_val = strtoull(str, &ptr, 0);               \
+        ull_val = strtoull(str, &ptr, base);            \
         val = (typeof(val)) ull_val;                    \
         if (errno || ptr == str)                        \
                 ret = EINVAL;                           \
@@ -53,7 +52,7 @@ static void version(void)
 /* convert to int and check: strictly greater than */
 #define str_to_int_gt(str, val, minv)                   \
 ({                                                      \
-        int ret = str_to_int(str, val);                 \
+        int ret = str_to_int(str, val, 0);              \
         if (!ret && (val <= minv))                      \
                 ret = ERANGE;                           \
         ret;                                            \
@@ -61,7 +60,7 @@ static void version(void)
 /* convert and check: greater than or equal  */
 #define str_to_int_ge(str, val, minv)                   \
 ({                                                      \
-        int ret = str_to_int(str, val);                 \
+        int ret = str_to_int(str, val, 0);              \
         if (!ret && (val < minv))                       \
                 ret = ERANGE;                           \
         ret;                                            \
@@ -69,15 +68,15 @@ static void version(void)
 /* convert and check: strictly less than  */
 #define str_to_int_lt(str, val, maxv)                   \
 ({                                                      \
-        int ret = str_to_int(str, val);                 \
+        int ret = str_to_int(str, val, 0);              \
         if (!ret && (val >= maxv))                      \
                 ret = ERANGE;                           \
         ret;                                            \
 })
 /* convert and check: range, ends inclusive  */
-#define str_to_int_range(str, val, minv, maxv)          \
+#define str_to_int_range(str, val, minv, maxv, base)    \
 ({                                                      \
-        int ret = str_to_int(str, val);                 \
+        int ret = str_to_int(str, val, base);           \
         if (!ret && (val < minv || val > maxv))         \
                 ret = ERANGE;                           \
         ret;                                            \
@@ -163,6 +162,10 @@ struct itchygen_info {
 	int debug_mode;
 	int verbose_mode;
 	unsigned int rand_seed;
+
+	struct endpoint_addr dst;
+	struct endpoint_addr src;
+
 	unsigned long long cur_ref_num;
 	unsigned long long cur_match_num;
 	double cur_time;
@@ -170,23 +173,34 @@ struct itchygen_info {
 	struct rand_interval order_type_prob_int[MODIFY_ORDER_NUM_TYPES];
 };
 
-static void print_params(struct itchygen_info *itchigen)
+static void print_params(struct itchygen_info *itchygen)
 {
+	char s_ip_str[32], d_ip_str[32];
+
 	printf("itchygen params:\n"
 	       "\tsymbols: %d\n\trun time: %d sec\n\trate: %ld orders/sec\n"
 	       "\torders num: %ld\n\tmean time to update: %d msec\n"
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
+	       "\t[%02x:%02x:%02x:%02x:%02x:%02x]%s:%d -> [%02x:%02x:%02x:%02x:%02x:%02x]%s:%d\n"
 	       "\tdbg: %s, verbose: %s\n\tseed: %d\n\n",
-	       itchigen->num_symbols, itchigen->run_time,
-	       itchigen->orders_rate, itchigen->num_orders,
-	       itchigen->time2update,
-	       itchigen->order_type_prob_int[ORDER_EXEC].pcts_total,
-	       itchigen->order_type_prob_int[ORDER_CANCEL].pcts_total,
-	       itchigen->order_type_prob_int[ORDER_REPLACE].pcts_total,
-	       itchigen->debug_mode ? "on" : "off",
-	       itchigen->verbose_mode ? "on" : "off", itchigen->rand_seed);
+	       itchygen->num_symbols, itchygen->run_time,
+	       itchygen->orders_rate, itchygen->num_orders,
+	       itchygen->time2update,
+	       itchygen->order_type_prob_int[ORDER_EXEC].pcts_total,
+	       itchygen->order_type_prob_int[ORDER_CANCEL].pcts_total,
+	       itchygen->order_type_prob_int[ORDER_REPLACE].pcts_total,
+	       itchygen->src.mac[0], itchygen->src.mac[1], itchygen->src.mac[2],
+	       itchygen->src.mac[3], itchygen->src.mac[4], itchygen->src.mac[5],
+	       inet_ntop(AF_INET, &itchygen->src.ip_addr, s_ip_str, 32),
+	       itchygen->src.port,
+	       itchygen->dst.mac[0], itchygen->dst.mac[1], itchygen->dst.mac[2],
+	       itchygen->dst.mac[3], itchygen->dst.mac[4], itchygen->dst.mac[5],
+	       inet_ntop(AF_INET, &itchygen->dst.ip_addr, d_ip_str, 32),
+	       itchygen->dst.port,
+	       itchygen->debug_mode ? "on" : "off",
+	       itchygen->verbose_mode ? "on" : "off", itchygen->rand_seed);
 
-	if (itchigen->run_time * itchigen->orders_rate != itchigen->num_orders)
+	if (itchygen->run_time * itchygen->orders_rate != itchygen->num_orders)
 		printf("WARNING: time * rate != orders, generation will stop "
 		       "when either time or orders run out\n\n");
 }
@@ -440,15 +454,17 @@ static void add_to_time_list(struct itchygen_info *itchygen,
 			ulist_add_tail(&itchygen->time_list,
 				       &add_event->time_node);
 			if (itchygen->debug_mode)
-				printf("timelist: add tail %2.9f\n", add_event->time);
+				printf("timelist: add tail %2.9f\n",
+				       add_event->time);
 			return;
 		} else if (add_event->time < next->time) {
 			/* place found - add after the current node */
 			ulist_insert(&itchygen->time_list,
 				     &add_event->time_node, &event->time_node);
 			if (itchygen->debug_mode)
-				printf("timelist: insert %2.9f between %2.9f - %2.9f\n",
-					add_event->time, event->time, next->time);
+				printf
+				    ("timelist: insert %2.9f between %2.9f - %2.9f\n",
+				     add_event->time, event->time, next->time);
 			return;
 		}
 	}
@@ -570,6 +586,25 @@ static void generate_orders(struct itchygen_info *itchygen)
 	submit_time_list(itchygen, ENTIRE_LIST, 0.0);
 }
 
+static int str_to_mac(char *str, uint8_t * mac)
+{
+	int i, err;
+
+	for (i = 0; i < 6; i++) {
+		if (i < 5) {
+			if (str[3 * i + 2] != ':')
+				return EINVAL;
+			str[3 * i + 2] = 0;
+		}
+		err = str_to_int_range(&str[3 * i], mac[i], 0, 255, 16);
+		if (i < 5)
+			str[3 * i + 2] = ':';
+		if (err)
+			return err;
+	}
+	return 0;
+}
+
 static void bad_optarg(int err, int ch, char *optarg)
 {
 	if (err == ERANGE)
@@ -600,7 +635,14 @@ static void usage(int status, char *msg)
 	       "-C, --prob-cancel   probability of cancel (0%%-100%%)\n"
 	       "-R, --prob-replace  probability of replace (0%%-100%%)\n"
 	       "* * * missing -E/-C/-R inferred by: E + C + R = 100%%\n\n"
-	       "-S, --rand-seed     set this seed before starting work\n"
+	       "-m, --dst-mac       destination MAC address\n"
+	       "-M, --src-mac       source MAC address\n"
+	       "-i, --dst-ip        destination ip address\n"
+	       "-I, --src-ip        source ip address\n"
+	       "-p, --dst-port      destination port\n"
+	       "-P, --src-port      source port\n"
+	       "* * * port range 1024 - 65535 supported, recommended: 49152 - 65535\n\n"
+	       "-S, --rand-seed     set the seed before starting work\n"
 	       "-d, --debug         produce debug information\n"
 	       "-v, --verbose       produce verbose output\n"
 	       "-V, --version       print version and exit\n"
@@ -619,6 +661,12 @@ static struct option const long_options[] = {
 	{"prob-cancel", required_argument, 0, 'C'},
 	{"prob-replace", required_argument, 0, 'R'},
 	{"rand-seed", required_argument, 0, 'S'},
+	{"dst-mac", required_argument, 0, 'm'},
+	{"src-mac", required_argument, 0, 'M'},
+	{"dst-port", required_argument, 0, 'p'},
+	{"dst-ip", required_argument, 0, 'i'},
+	{"src-port", required_argument, 0, 'P'},
+	{"src-ip", required_argument, 0, 'I'},
 	{"debug", no_argument, 0, 'd'},
 	{"verbose", no_argument, 0, 'v'},
 	{"version", no_argument, 0, 'V'},
@@ -626,7 +674,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "s:t:r:n:u:E:C:R:S:dvVh";
+static char *short_options = "s:t:r:n:u:E:C:R:S:m:M:p:i:P:I:dvVh";
 
 int main(int argc, char **argv)
 {
@@ -642,6 +690,9 @@ int main(int argc, char **argv)
 	int prob_replace = -1;
 	int use_seed = 0;
 	int mult, suffix, i;
+	uint8_t mac[8];
+	in_addr_t ip_addr;
+	uint16_t port;
 
 	if (argc < 2)
 		usage(0, NULL);
@@ -708,7 +759,7 @@ int main(int argc, char **argv)
 		case 'E':	/* probability of execution */
 			if (prob_exec >= 0)
 				usage(E2BIG, "error: -E supplied twice");
-			err = str_to_int_range(optarg, prob_exec, 0, 100);
+			err = str_to_int_range(optarg, prob_exec, 0, 100, 10);
 			if (err)
 				bad_optarg(err, ch, optarg);
 			num_prob_args++;
@@ -716,7 +767,7 @@ int main(int argc, char **argv)
 		case 'C':	/* probability of cancel */
 			if (prob_cancel >= 0)
 				usage(E2BIG, "error: -C supplied twice");
-			err = str_to_int_range(optarg, prob_cancel, 0, 100);
+			err = str_to_int_range(optarg, prob_cancel, 0, 100, 10);
 			if (err)
 				bad_optarg(err, ch, optarg);
 			num_prob_args++;
@@ -724,7 +775,8 @@ int main(int argc, char **argv)
 		case 'R':	/* probability of replace */
 			if (prob_replace >= 0)
 				usage(E2BIG, "error: -U supplied twice");
-			err = str_to_int_range(optarg, prob_replace, 0, 100);
+			err =
+			    str_to_int_range(optarg, prob_replace, 0, 100, 10);
 			if (err)
 				bad_optarg(err, ch, optarg);
 			num_prob_args++;
@@ -734,6 +786,42 @@ int main(int argc, char **argv)
 			if (err)
 				bad_optarg(err, ch, optarg);
 			use_seed = 1;
+			break;
+		case 'm':
+			err = str_to_mac(optarg, mac);
+			if (err)
+				bad_optarg(err, ch, optarg);
+			ep_addr_set_mac(&itchygen.dst, mac);
+			break;
+		case 'M':
+			err = str_to_mac(optarg, mac);
+			if (err)
+				bad_optarg(err, ch, optarg);
+			ep_addr_set_mac(&itchygen.src, mac);
+			break;
+		case 'p':	/* dst port */
+			err = str_to_int_range(optarg, port, 1024, 65535, 10);
+			if (err)
+				bad_optarg(err, ch, optarg);
+			ep_addr_set_port(&itchygen.dst, port);
+			break;
+		case 'P':	/* src port */
+			err = str_to_int_range(optarg, port, 1024, 65535, 10);
+			if (err)
+				bad_optarg(err, ch, optarg);
+			ep_addr_set_port(&itchygen.src, port);
+			break;
+		case 'i':	/* dst ip addr */
+			ip_addr = inet_addr(optarg);
+			if (ip_addr == INADDR_NONE)
+				bad_optarg(EINVAL, ch, optarg);
+			ep_addr_set_ip(&itchygen.dst, ip_addr);
+			break;
+		case 'I':	/* src ip addr */
+			ip_addr = inet_addr(optarg);
+			if (ip_addr == INADDR_NONE)
+				bad_optarg(EINVAL, ch, optarg);
+			ep_addr_set_ip(&itchygen.src, ip_addr);
 			break;
 		case 'd':
 			itchygen.debug_mode = 1;
@@ -762,6 +850,12 @@ int main(int argc, char **argv)
 
 	if (!itchygen.time2update)
 		usage(EINVAL, "error: mean time to next update not supplied");
+
+	if (!ep_addr_all_set(&itchygen.dst))
+		usage(EINVAL, "error: dst mac+ip+port not supplied");
+
+	if (!ep_addr_all_set(&itchygen.src))
+		usage(EINVAL, "error: src mac+ip+port not supplied");
 
 	assert(num_rate_args < 4);
 	if (num_rate_args == 3)
@@ -832,7 +926,7 @@ int main(int argc, char **argv)
 
 	ulist_head_init(&itchygen.time_list);
 
-	err = pcap_file_open("itchygen.pcap");
+	err = pcap_file_open("itchygen.pcap", &itchygen.dst, &itchygen.src);
 	if (err) {
 		printf("failed to open pcap file, %m\n");
 		return err;
