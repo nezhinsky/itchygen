@@ -104,5 +104,10 @@ unsigned long dtime_to_sec(double dtime)
 
 unsigned long dtime_to_nsec(double dtime)
 {
-	return (unsigned long) trunc(1.0e10 * (dtime - trunc(dtime)));
+	return (unsigned long) trunc(1.0e9 * (dtime - trunc(dtime)));
+}
+
+unsigned long dtime_to_usec(double dtime)
+{
+	return (unsigned long) trunc(1.0e6 * (dtime - trunc(dtime)));
 }

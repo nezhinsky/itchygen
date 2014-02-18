@@ -35,6 +35,7 @@ extern "C" {
 
     unsigned long dtime_to_sec(double dtime);
     unsigned long dtime_to_nsec(double dtime);
+    unsigned long dtime_to_usec(double dtime);
 
 #ifdef	__cplusplus
 }
