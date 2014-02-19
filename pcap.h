@@ -1,6 +1,7 @@
-/* 
+/*
  * File:   pcap.h
- * Author: Alexander Nezhinsky (alexander@riverscale.com)
+ * Summary: Creating a PCAP file with UDP packets from binary payload
+ * Author: Alexander Nezhinsky (nezhinsky@gmail.com)
  */
 
 #ifndef PCAP_H
@@ -20,14 +21,14 @@ struct pcap_global_hdr {
 	uint32_t network;	/* data link type */
 } __attribute__ ((packed));
 
-#define PCAP_MAGIC_ORIG  0xa1b2c3d4
-#define PCAP_MAGIC_SWAP  0xd4c3b2a1
+#define PCAP_MAGIC_ORIG		0xa1b2c3d4
+#define PCAP_MAGIC_SWAP		0xd4c3b2a1
 
-#define PCAP_VER_MAJOR  2
-#define PCAP_VER_MINOR  4
+#define PCAP_VER_MAJOR		2
+#define PCAP_VER_MINOR		4
 
-#define PCAP_SNAL_LEN   65535
-#define PCAP_NET_ETH    1
+#define PCAP_SNAP_LEN		65535
+#define PCAP_NET_ETH		1
 
 struct pcap_record_hdr {
 	uint32_t ts_sec;	/* timestamp seconds */

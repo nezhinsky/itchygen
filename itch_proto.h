@@ -1,7 +1,7 @@
 /*
- * itch_proto.h
- *
- * ITCH messaging protocol
+ * File: itch_proto.h
+ * Summary: ITCH messaging protocol definitions
+ * Author: Alexander Nezhinsky (nezhinsky@gmail.com)
  */
 
 #ifndef __ITCH_PROTO_H__

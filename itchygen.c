@@ -1,6 +1,30 @@
 /*
- * itchygen - ITCH stream generator
+ * File: itchygen.c
+ * Summary: a simple ITCH stream generator, output in PCAP format
+ *          to be transmitted using tcp_replay or a similar utility
  *
+ * Copyright (c) 2014, Alexander Nezhinsky (nezhinsky@gmail.com)
+ * All rights reserved.
+ *
+ * Licensed under BSD-MIT :
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 
 #include <stdlib.h>
@@ -12,7 +36,8 @@
 #include <errno.h>
 #include <assert.h>
 #include <ctype.h>
-#include <inttypes.h>		/* PRIu64 */
+#define __STDC_FORMAT_MACROS	/* for PRIu64 etc. */
+#include <inttypes.h>
 #include <endian.h>
 #include <getopt.h>
 
@@ -181,7 +206,8 @@ static void print_params(struct itchygen_info *itchygen)
 	       "\tsymbols: %d\n\trun time: %d sec\n\trate: %ld orders/sec\n"
 	       "\torders num: %ld\n\tmean time to update: %d msec\n"
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
-	       "\t[%02x:%02x:%02x:%02x:%02x:%02x]%s:%d -> [%02x:%02x:%02x:%02x:%02x:%02x]%s:%d\n"
+	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
+	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
 	       "\tdbg: %s, verbose: %s\n\tseed: %d\n\n",
 	       itchygen->num_symbols, itchygen->run_time,
 	       itchygen->orders_rate, itchygen->num_orders,
@@ -589,6 +615,9 @@ static void generate_orders(struct itchygen_info *itchygen)
 static int str_to_mac(char *str, uint8_t * mac)
 {
 	int i, err;
+
+	if (strlen(str) != 17)
+		return EINVAL;
 
 	for (i = 0; i < 6; i++) {
 		if (i < 5) {

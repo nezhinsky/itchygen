@@ -1,7 +1,9 @@
 /*
+ * File: ulist.h
  * Summary: double linked list (+ upcasting routines)
  *
  * Author: Rusty Russell <rusty@rustcorp.com.au>
+ * Modified by: Alexander Nezhinsky (nezhinsky@gmail.com)
  *
  * Licensed under BSD-MIT :
  *
@@ -22,7 +24,7 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
- * 
+ *
  */
 
 #ifndef __ULIST_H_
@@ -338,7 +340,7 @@ static inline void ulist_add_tail(struct ulist_head *h, struct ulist_node *n)
  * ulist_insert - insert an entry after another linked list node.
  * @h: the ulist_head to add the node to
  * @n: the ulist_node to add to the list.
- * @after: the ulist_node after which to add the new entry 
+ * @after: the ulist_node after which to add the new entry
  *
  * The ulist_node does not need to be initialized; it will be overwritten.
  * Example:
@@ -639,8 +641,8 @@ static inline void ulist_prepend_list(struct ulist_head *to,
  * @off: offset(relative to @i) at which list node data resides.
  *
  * This is a low-level wrapper to iterate @i over the entire list, used to
- * implement all other, more high-level, for-each constructs. 
- * It's a for loop, so you can break and continue as normal. 
+ * implement all other, more high-level, for-each constructs.
+ * It's a for loop, so you can break and continue as normal.
  *
  * WARNING! Being the low-level macro that it is, this wrapper doesn't know
  * nor care about the type of @i. The only assumtion made is that @i points
