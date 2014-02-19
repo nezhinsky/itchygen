@@ -1,6 +1,22 @@
-sbindir ?= $(PREFIX)/sbin
+# itchygen makefile
 
+# files to compile
 ITCHYGEN_OBJS += itchygen.o rand_util.o pcap.o ulist.o
+ITCHYSERV_OBJS += itchyserv.o
+ITCHYPING_OBJS += itchyping.o
+
+# libraries to use
+ITCHYGEN_LIBS += -lm
+ITCHYSERV_LIBS +=
+ITCHYPING_LIBS +=
+
+# executables to make
+PROGRAMS += itchygen itchyserv itchyping
+
+# dependencies
+ITCHYGEN_DEP = $(ITCHYGEN_OBJS:.o=.d)
+ITCHYSERV_DEP = $(ITCHYSERV_OBJS:.o=.d)
+ITCHYPING_DEP = $(ITCHYPING_OBJS:.o=.d)
 
 # include dirs
 INCLUDES += -I.
@@ -15,27 +31,34 @@ CFLAGS += -g -O2 -fno-strict-aliasing
 endif
 CFLAGS += -Wall -Wstrict-prototypes -fPIC
 
-# libraries to use
-LIBS += -lm # add libs as needed: -laio -lpthread -lrt
-
-PROGRAMS += itchygen 
-
-ITCHYGEN_DEP = $(ITCHYGEN_OBJS:.o=.d)
-
-#LDFLAGS = -Wl,-E
+# linker flags
+LDFLAGS +=
 
 .PHONY:all
 all: $(PROGRAMS)
 
 itchygen: $(ITCHYGEN_OBJS)
-#	echo $(CC) $^ -o $@ $(LIBS)
-	$(CC) $^ -o $@ $(LDFLAGS) $(LIBS)
+	$(CC) $^ -o $@ $(LDFLAGS) $(ITCHYGEN_LIBS)
 
 -include $(ITCHYGEN_DEP)
 
+itchyserv: $(ITCHYSERV_OBJS)
+	$(CC) $^ -o $@ $(LDFLAGS) $(ITCHYSERV_LIBS)
+
+-include $(ITCHYSERV_DEP)
+
+itchyping: $(ITCHYPING_OBJS)
+	$(CC) $^ -o $@ $(LDFLAGS) $(ITCHYPING_LIBS)
+
+-include $(ITCHYPING_DEP)
+
+# compiling and linking
 %.o: %.c
 	$(CC) -c $(CFLAGS) $*.c -o $*.o
 	@$(CC) -MM $(CFLAGS) -MF $*.d -MT $*.o $*.c
+
+DESTDIR = /usr
+sbindir ?= $(PREFIX)/sbin
 
 .PHONY: install
 install: $(PROGRAMS)
@@ -44,4 +67,4 @@ install: $(PROGRAMS)
 
 .PHONY: clean
 clean:
-	rm -f *.[od] *.so $(PROGRAMS) 
+	rm -f *.[od] *.so $(PROGRAMS)

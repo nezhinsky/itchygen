@@ -15,12 +15,18 @@
 #define TRADIING_STATE_TRADING		'T'	/* currently trading on NASDAQ */
 
 #define MSG_TYPE_TRADING_ACTION		'H'
+#define MSG_TYPE_TIMESTAMP		'T'
 #define MSG_TYPE_ADD_ORDER_NO_MPID	'A'
 #define MSG_TYPE_ADD_ORDER_WITH_MPID	'F'
 #define MSG_TYPE_ORDER_EXECUTED		'C'
 #define MSG_TYPE_ORDER_CANCEL		'X'
 #define MSG_TYPE_ORDER_DELETE		'D'
 #define MSG_TYPE_ORDER_REPLACE		'U'
+
+struct itch_msg_timestamp {
+	char msg_type;		/* 'T' - timestamp message */
+	uint32_t second;	/* seconds since midnight */
+} __attribute__ ((packed));
 
 struct itch_msg_stock_trade {
 	char msg_type;		/* 'H' - stock trading action message */

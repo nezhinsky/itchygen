@@ -1,5 +1,8 @@
 *.o
 *.d
 *.*~
+*.pcap
 itchygen
+itchyserv
+itchyping
 nbproject
