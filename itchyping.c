@@ -37,19 +37,20 @@ static struct sockaddr_in servaddr;
 
 static void send_msg(void *buf, size_t size)
 {
-    int n;
+	int n;
 
-    n = sendto(sockfd, buf, size, 0,
-	    (struct sockaddr *)&servaddr, sizeof(servaddr));
-    if (n == size)
-	return;
-    else if (n < 0) {
-	printf("failed to send msg, size %zd : %m\n", size);
-	exit(errno);
-    } else {
-	printf("failed to send entire msg, sent %d out of %zd\n", n, size);
-	exit(EIO);
-    }
+	n = sendto(sockfd, buf, size, 0,
+		   (struct sockaddr *)&servaddr, sizeof(servaddr));
+	if (n == size)
+		return;
+	else if (n < 0) {
+		printf("failed to send msg, size %zd : %m\n", size);
+		exit(errno);
+	} else {
+		printf("failed to send entire msg, sent %d out of %zd\n", n,
+		       size);
+		exit(EIO);
+	}
 }
 
 int main(int argc, char **argv)
@@ -64,7 +65,7 @@ int main(int argc, char **argv)
 		.msg_type = MSG_TYPE_ADD_ORDER_NO_MPID,
 		.timestamp_ns = htobe32(TIME_NS_1),
 		.ref_num = htobe64(REF_NUM_1),
-		.buy_sell = 'B',
+		.buy_sell = ITCH_ORDER_BUY,
 		.shares = htobe32(1000L),
 		.price = htobe32(280L),
 		.stock = "SAP",
@@ -73,7 +74,7 @@ int main(int argc, char **argv)
 		.msg_type = MSG_TYPE_ADD_ORDER_NO_MPID,
 		.timestamp_ns = htobe32(TIME_NS_2),
 		.ref_num = htobe64(REF_NUM_2),
-		.buy_sell = 'S',
+		.buy_sell = ITCH_ORDER_SELL,
 		.shares = htobe32(600L),
 		.price = htobe32(100L),
 		.stock = "IBM",
@@ -91,11 +92,11 @@ int main(int argc, char **argv)
 		.msg_type = MSG_TYPE_ADD_ORDER_NO_MPID,
 		.timestamp_ns = htobe32(TIME_NS_4),
 		.ref_num = htobe64(REF_NUM_3),
-		.buy_sell = 'S',
+		.buy_sell = ITCH_ORDER_SELL,
 		.shares = htobe32(500L),
 		.price = htobe32(230L),
 		.stock = "EMC",
-	};	
+	};
 	struct itch_msg_order_replace replace_msg2 = {
 		.msg_type = MSG_TYPE_ORDER_REPLACE,
 		.timestamp_ns = htobe32(TIME_NS_5),
@@ -119,7 +120,7 @@ int main(int argc, char **argv)
 		.printable = 'Y',
 		.price = replace_msg2.price,
 	};
-	
+
 	if (argc != 3) {
 		printf("usage:  itchyping <ip_addr> <port>\n");
 		exit(1);
@@ -130,7 +131,8 @@ int main(int argc, char **argv)
 	memset(&servaddr, 0, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_addr.s_addr = inet_addr(argv[1]);
-	if (servaddr.sin_addr.s_addr == INADDR_NONE || !servaddr.sin_addr.s_addr) {
+	if (servaddr.sin_addr.s_addr == INADDR_NONE
+	    || !servaddr.sin_addr.s_addr) {
 		printf("ip arg invalid: %s\n", argv[1]);
 		usage(EINVAL);
 	}

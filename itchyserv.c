@@ -31,17 +31,19 @@
 #include <endian.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
-#define __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS	/* for PRIu64 etc. */
 #include <inttypes.h>
 
 #include "itch_proto.h"
+
+static unsigned int time_sec;
 
 static void print_event_time(char *msg)
 {
 	struct itch_msg_timestamp *evt = (struct itch_msg_timestamp *)msg;
 
-	printf("timestamp: %d\n", be32toh(evt->second));
+	time_sec = be32toh(evt->second);
+	printf("timestamp: %d sec\n", time_sec);
 }
 
 static void print_event_add(char *msg)
@@ -49,18 +51,19 @@ static void print_event_add(char *msg)
 	struct itch_msg_add_order_no_mpid *evt =
 	    (struct itch_msg_add_order_no_mpid *)msg;
 
-	printf("time: %09d ADD ref: %" PRIu64 " %s %c shares: %d price: %d\n",
-	       be32toh(evt->timestamp_ns), be64toh(evt->ref_num),
-	       evt->stock, evt->buy_sell,
-	       be32toh(evt->shares), be32toh(evt->price));
+	printf("time: %d.%09d ADD ref: %" PRIu64
+	       " %s shares: %d %s price: %d\n", time_sec,
+	       be32toh(evt->timestamp_ns), be64toh(evt->ref_num), evt->stock,
+	       be32toh(evt->shares), str_buy_sell(evt->buy_sell),
+	       be32toh(evt->price));
 }
 
 static void print_event_exec(char *msg)
 {
 	struct itch_msg_order_exec *evt = (struct itch_msg_order_exec *)msg;
 
-	printf("time: %09d EXEC ref: %" PRIu64 " shares: %d price: %d\n",
-	       be32toh(evt->timestamp_ns), be64toh(evt->ref_num),
+	printf("time: %d.%09d EXEC ref: %" PRIu64 " shares: %d price: %d\n",
+	       time_sec, be32toh(evt->timestamp_ns), be64toh(evt->ref_num),
 	       be32toh(evt->shares), be32toh(evt->price));
 }
 
@@ -68,8 +71,8 @@ static void print_event_cancel(char *msg)
 {
 	struct itch_msg_order_cancel *evt = (struct itch_msg_order_cancel *)msg;
 
-	printf("time: %09d CANCEL ref: %" PRIu64 " shares: %d\n",
-	       be32toh(evt->timestamp_ns), be64toh(evt->ref_num),
+	printf("time: %d.%09d CANCEL ref: %" PRIu64 " shares: %d\n",
+	       time_sec, be32toh(evt->timestamp_ns), be64toh(evt->ref_num),
 	       be32toh(evt->shares));
 }
 
@@ -78,8 +81,9 @@ static void print_event_replace(char *msg)
 	struct itch_msg_order_replace *evt =
 	    (struct itch_msg_order_replace *)msg;
 
-	printf("time: %09d REPLACE ref: %" PRIu64 " -> %" PRIu64
-	       " shares: %d price: %d\n", be32toh(evt->timestamp_ns),
+	printf("time: %d.%09d REPLACE ref: %" PRIu64 " -> %" PRIu64
+	       " shares: %d price: %d\n",
+	       time_sec, be32toh(evt->timestamp_ns),
 	       be64toh(evt->orig_ref_num), be64toh(evt->new_ref_num),
 	       be32toh(evt->shares), be32toh(evt->price));
 }
@@ -117,19 +121,19 @@ int main(int argc, char **argv)
 		n = recvfrom(sockfd, msg, 1000, 0, (struct sockaddr *)&cliaddr,
 			     &len);
 		switch (msg[0]) {
-		case 'A':
+		case MSG_TYPE_ADD_ORDER_NO_MPID:
 			print_event_add(msg);
 			break;
-		case 'C':
+		case MSG_TYPE_ORDER_EXECUTED:
 			print_event_exec(msg);
 			break;
-		case 'X':
+		case MSG_TYPE_ORDER_CANCEL:
 			print_event_cancel(msg);
 			break;
-		case 'U':
+		case MSG_TYPE_ORDER_REPLACE:
 			print_event_replace(msg);
 			break;
-		case 'T':
+		case MSG_TYPE_TIMESTAMP:
 			print_event_time(msg);
 			break;
 		default:

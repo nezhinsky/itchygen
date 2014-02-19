@@ -23,6 +23,9 @@
 #define MSG_TYPE_ORDER_DELETE		'D'
 #define MSG_TYPE_ORDER_REPLACE		'U'
 
+#define ITCH_ORDER_BUY			'B'
+#define ITCH_ORDER_SELL			'S'
+
 struct itch_msg_timestamp {
 	char msg_type;		/* 'T' - timestamp message */
 	uint32_t second;	/* seconds since midnight */
@@ -89,5 +92,15 @@ struct itch_msg_order_replace {
 	uint32_t shares;	/* new total display quantity */
 	uint32_t price;		/* new display price */
 } __attribute__ ((packed));
+
+static inline char *str_buy_sell(char buy_sell)
+{
+	if (buy_sell == ITCH_ORDER_BUY)
+		return "BUY";
+	else if (buy_sell == ITCH_ORDER_SELL)
+		return "SELL";
+	else
+		return "INVALID";
+}
 
 #endif

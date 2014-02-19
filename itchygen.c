@@ -336,10 +336,10 @@ static int pcap_order_add(struct itchygen_info *itchygen,
 			  struct order_event *event)
 {
 	struct itch_msg_add_order_no_mpid add_msg = {
-		.msg_type = 'A',
+		.msg_type = MSG_TYPE_ADD_ORDER_NO_MPID,
 		.timestamp_ns = htobe32(dtime_to_nsec(event->time)),
 		.ref_num = htobe64(event->ref_num),
-		.buy_sell = event->add.buy ? 'B' : 'S',
+		.buy_sell = event->add.buy ? ITCH_ORDER_BUY : ITCH_ORDER_SELL,
 		.shares = htobe32(event->add.shares),
 		.price = htobe32(event->add.price),
 	};
@@ -357,7 +357,7 @@ static int pcap_order_cancel(struct itchygen_info *itchygen,
 			     struct order_event *event)
 {
 	struct itch_msg_order_cancel cancel_msg = {
-		.msg_type = 'X',
+		.msg_type = MSG_TYPE_ORDER_CANCEL,
 		.timestamp_ns = htobe32(dtime_to_nsec(event->time)),
 		.ref_num = htobe64(event->ref_num),
 		.shares = htobe32(event->cancel.shares),
@@ -371,7 +371,7 @@ static int pcap_order_exec(struct itchygen_info *itchygen,
 			   struct order_event *event)
 {
 	struct itch_msg_order_exec exec_msg = {
-		.msg_type = 'C',
+		.msg_type = MSG_TYPE_ORDER_EXECUTED,
 		.timestamp_ns = htobe32(dtime_to_nsec(event->time)),
 		.ref_num = htobe64(event->ref_num),
 		.shares = htobe32(event->exec.shares),
@@ -388,7 +388,7 @@ static int pcap_order_replace(struct itchygen_info *itchygen,
 			      struct order_event *event)
 {
 	struct itch_msg_order_replace replace_msg = {
-		.msg_type = 'U',
+		.msg_type = MSG_TYPE_ORDER_REPLACE,
 		.timestamp_ns = htobe32(dtime_to_nsec(event->time)),
 		.orig_ref_num = htobe64(event->replace.orig_ref_num),
 		.new_ref_num = htobe64(event->ref_num),
