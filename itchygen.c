@@ -187,6 +187,7 @@ struct itchygen_info {
 	int debug_mode;
 	int verbose_mode;
 	unsigned int rand_seed;
+	char *fname;
 
 	struct endpoint_addr dst;
 	struct endpoint_addr src;
@@ -203,11 +204,13 @@ static void print_params(struct itchygen_info *itchygen)
 	char s_ip_str[32], d_ip_str[32];
 
 	printf("itchygen params:\n"
-	       "\tsymbols: %d\n\trun time: %d sec\n\trate: %ld orders/sec\n"
-	       "\torders num: %ld\n\tmean time to update: %d msec\n"
+	       "\tsymbols: %d\n"
+	       "\trun time: %d sec, rate: %ld orders/sec, orders: %ld\n"
+	       "\tmean time to update: %d msec\n"
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
 	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
+	       "\toutput file: %s\n"
 	       "\tdbg: %s, verbose: %s\n\tseed: %d\n\n",
 	       itchygen->num_symbols, itchygen->run_time,
 	       itchygen->orders_rate, itchygen->num_orders,
@@ -222,7 +225,7 @@ static void print_params(struct itchygen_info *itchygen)
 	       itchygen->dst.mac[0], itchygen->dst.mac[1], itchygen->dst.mac[2],
 	       itchygen->dst.mac[3], itchygen->dst.mac[4], itchygen->dst.mac[5],
 	       inet_ntop(AF_INET, &itchygen->dst.ip_addr, d_ip_str, 32),
-	       itchygen->dst.port,
+	       itchygen->dst.port, itchygen->fname ? : "itchygen.pcap",
 	       itchygen->debug_mode ? "on" : "off",
 	       itchygen->verbose_mode ? "on" : "off", itchygen->rand_seed);
 
@@ -671,6 +674,7 @@ static void usage(int status, char *msg)
 	       "-p, --dst-port      destination port\n"
 	       "-P, --src-port      source port\n"
 	       "* * * port range 1024 - 65535 supported, recommended: 49152 - 65535\n\n"
+	       "-f, --file          output PCAP file name\n"
 	       "-S, --rand-seed     set the seed before starting work\n"
 	       "-d, --debug         produce debug information\n"
 	       "-v, --verbose       produce verbose output\n"
@@ -696,6 +700,7 @@ static struct option const long_options[] = {
 	{"dst-ip", required_argument, 0, 'i'},
 	{"src-port", required_argument, 0, 'P'},
 	{"src-ip", required_argument, 0, 'I'},
+	{"file", required_argument, 0, 'f'},
 	{"debug", no_argument, 0, 'd'},
 	{"verbose", no_argument, 0, 'v'},
 	{"version", no_argument, 0, 'V'},
@@ -703,7 +708,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "s:t:r:n:u:E:C:R:S:m:M:p:i:P:I:dvVh";
+static char *short_options = "s:t:r:n:u:E:C:R:S:m:M:p:i:P:I:f:dvVh";
 
 int main(int argc, char **argv)
 {
@@ -852,6 +857,13 @@ int main(int argc, char **argv)
 				bad_optarg(EINVAL, ch, optarg);
 			ep_addr_set_ip(&itchygen.src, ip_addr);
 			break;
+		case 'f':
+			itchygen.fname = strdup(optarg);
+			if (!itchygen.fname) {
+				printf("failed to alloc mem for file name\n");
+				exit(ENOMEM);
+			}
+			break;
 		case 'd':
 			itchygen.debug_mode = 1;
 			itchygen.verbose_mode = 1;
@@ -955,7 +967,8 @@ int main(int argc, char **argv)
 
 	ulist_head_init(&itchygen.time_list);
 
-	err = pcap_file_open("itchygen.pcap", &itchygen.dst, &itchygen.src);
+	err = pcap_file_open(itchygen.fname ? : "itchygen.pcap",
+			     &itchygen.dst, &itchygen.src);
 	if (err) {
 		printf("failed to open pcap file, %m\n");
 		return err;
@@ -964,7 +977,10 @@ int main(int argc, char **argv)
 	if (itchygen.verbose_mode)
 		print_params(&itchygen);
 	generate_orders(&itchygen);
-	pcap_file_close();
 
-	return err;
+	pcap_file_close();
+	if (itchygen.fname)
+		free(itchygen.fname);
+
+	return 0;
 }
