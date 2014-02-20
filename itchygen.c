@@ -746,8 +746,9 @@ int main(int argc, char **argv)
 				bad_optarg(err, ch, optarg);
 			break;
 		case 'r':	/* orders rate */
+			if (orders_rate)
+				usage(EINVAL, "-r supplied twice");
 			mult = 1;
-
 			suffix = optarg[strlen(optarg) - 1];
 			if (!isdigit(suffix)) {
 				if (suffix == 'k' || suffix == 'K')
@@ -763,14 +764,17 @@ int main(int argc, char **argv)
 			num_rate_args++;
 			break;
 		case 't':	/* run time */
+			if (run_time)
+				usage(EINVAL, "-t supplied twice");
 			err = str_to_int_gt(optarg, run_time, 0);
 			if (err)
 				bad_optarg(err, ch, optarg);
 			num_rate_args++;
 			break;
 		case 'n':	/* total number of orders */
+			if (num_orders)
+				usage(EINVAL, "-n supplied twice");
 			mult = 1;
-
 			suffix = optarg[strlen(optarg) - 1];
 			if (!isdigit(suffix)) {
 				if (suffix == 'k' || suffix == 'K')
