@@ -111,6 +111,11 @@ unsigned long long rand_uint64(void)
 	return (rand64 << 32) | (unsigned long long)random();
 }
 
+unsigned long rand_uint32(void)
+{
+	return (unsigned long)random();
+}
+
 const double RAND_MAX_FLOAT = 1.0 + (double)RAND_MAX;
 
 double rand_uniform_one(void)

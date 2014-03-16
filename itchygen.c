@@ -245,7 +245,7 @@ static void print_params(struct itchygen_info *itchygen)
 static unsigned long long generate_ref_num(struct itchygen_info *itchygen)
 {
 	if (!itchygen->seq_ref_num)
-		return rand_uint64();
+		return (unsigned long long)rand_uint32();
 	else
 		return ++itchygen->cur_ref_num;
 }
