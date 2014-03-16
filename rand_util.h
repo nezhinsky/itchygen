@@ -21,6 +21,8 @@ struct rand_interval {
 void rand_interval_init(struct rand_interval *ri, size_t n);
 size_t rand_index(struct rand_interval *ri, size_t n);
 
+unsigned long long rand_uint64(void);
+
 int rand_int_range(int from, int to);
 int rand_char_capital(void);
 

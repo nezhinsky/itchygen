@@ -104,6 +104,13 @@ int rand_char_capital(void)
 	return rand_int_range('A', 'Z');
 }
 
+unsigned long long rand_uint64(void)
+{
+	unsigned long long rand64 = (unsigned long long)random();
+
+	return (rand64 << 32) | (unsigned long long)random();
+}
+
 const double RAND_MAX_FLOAT = 1.0 + (double)RAND_MAX;
 
 double rand_uniform_one(void)

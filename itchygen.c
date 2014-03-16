@@ -190,6 +190,7 @@ struct itchygen_info {
 	int num_rate_args;
 	unsigned int time2update;
 	int num_prob_args;
+	int seq_ref_num;
 	int debug_mode;
 	int verbose_mode;
 	unsigned int rand_seed;
@@ -239,6 +240,14 @@ static void print_params(struct itchygen_info *itchygen)
 	if (itchygen->run_time * itchygen->orders_rate != itchygen->num_orders)
 		printf("WARNING: time * rate != orders, generation will stop "
 		       "when either time or orders run out\n\n");
+}
+
+static unsigned long long generate_ref_num(struct itchygen_info *itchygen)
+{
+	if (!itchygen->seq_ref_num)
+		return rand_uint64();
+	else
+		return ++itchygen->cur_ref_num;
 }
 
 static struct rand_interval symbol_len_rand_int[2];	/* len: 3, 4 */
@@ -607,7 +616,7 @@ static struct order_event *generate_new_order(struct itchygen_info *itchygen)
 	symbol_index = rand_int_range(0, itchygen->num_symbols - 1);
 	order->symbol = &itchygen->symbol[symbol_index];
 	order->time = itchygen->cur_time;
-	order->ref_num = ++itchygen->cur_ref_num;
+	order->ref_num = generate_ref_num(itchygen);
 	order->add.buy = rand_int_range(0, 1);
 	order->add.shares = 10 * rand_int_range(1, 250);
 	order->add.price = rand_int_range(order->symbol->min_price,
@@ -656,7 +665,7 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 		event->replace.price = rand_int_range(order->symbol->min_price,
 						      order->symbol->max_price);
 		event->replace.orig_ref_num = order->ref_num;
-		event->ref_num = ++itchygen->cur_ref_num;
+		event->ref_num = generate_ref_num(itchygen);
 
 		event->remain_shares = event->replace.shares;
 		event->cur_price = event->replace.price;
@@ -785,6 +794,7 @@ static void usage(int status, char *msg)
 	       "-P, --src-port      source port\n"
 	       "* * * port range 1024 - 65535 supported, recommended: 49152 - 65535\n\n"
 	       "-f, --file          output PCAP file name\n"
+	       "-Q, --seq           sequential ref.nums, default: random\n"
 	       "-S, --rand-seed     set the seed before starting work\n"
 	       "-d, --debug         produce debug information\n"
 	       "-v, --verbose       produce verbose output\n"
@@ -811,6 +821,7 @@ static struct option const long_options[] = {
 	{"src-port", required_argument, 0, 'P'},
 	{"src-ip", required_argument, 0, 'I'},
 	{"file", required_argument, 0, 'f'},
+	{"seq", no_argument, 0, 'Q'},
 	{"debug", no_argument, 0, 'd'},
 	{"verbose", no_argument, 0, 'v'},
 	{"version", no_argument, 0, 'V'},
@@ -818,7 +829,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "s:t:r:n:u:E:C:R:S:m:M:p:i:P:I:f:dvVh";
+static char *short_options = "s:t:r:n:u:E:C:R:S:m:M:p:i:P:I:f:QdvVh";
 
 int main(int argc, char **argv)
 {
@@ -977,6 +988,9 @@ int main(int argc, char **argv)
 				printf("failed to alloc mem for file name\n");
 				exit(ENOMEM);
 			}
+			break;
+		case 'Q':
+			itchygen.seq_ref_num = 1;
 			break;
 		case 'd':
 			itchygen.debug_mode = 1;
