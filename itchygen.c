@@ -194,7 +194,9 @@ struct itchygen_info {
 	int debug_mode;
 	int verbose_mode;
 	unsigned int rand_seed;
-	char *fname;
+	char *out_fname;
+	char *sym_fname;
+	unsigned int sym_num_lines;
 
 	struct endpoint_addr dst;
 	struct endpoint_addr src;
@@ -212,7 +214,7 @@ static void print_params(struct itchygen_info *itchygen)
 	char s_ip_str[32], d_ip_str[32];
 
 	printf("itchygen params:\n"
-	       "\tsymbols: %d\n"
+	       "\tsymbols file: %s, lines: %d, used: %d\n"
 	       "\trun time: %d sec, rate: %ld orders/sec, orders: %ld\n"
 	       "\tmean time to update: %d msec\n"
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
@@ -220,20 +222,20 @@ static void print_params(struct itchygen_info *itchygen)
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
 	       "\toutput file: %s\n"
 	       "\tdbg: %s, verbose: %s\n\tseed: %d\n\n",
-	       itchygen->num_symbols, itchygen->run_time,
-	       itchygen->orders_rate, itchygen->num_orders,
-	       itchygen->time2update,
+	       itchygen->sym_fname, itchygen->sym_num_lines,
+	       itchygen->num_symbols, itchygen->run_time, itchygen->orders_rate,
+	       itchygen->num_orders, itchygen->time2update,
 	       itchygen->order_type_prob_int[ORDER_EXEC].pcts_total,
 	       itchygen->order_type_prob_int[ORDER_CANCEL].pcts_total,
 	       itchygen->order_type_prob_int[ORDER_REPLACE].pcts_total,
 	       itchygen->src.mac[0], itchygen->src.mac[1], itchygen->src.mac[2],
 	       itchygen->src.mac[3], itchygen->src.mac[4], itchygen->src.mac[5],
 	       inet_ntop(AF_INET, &itchygen->src.ip_addr, s_ip_str, 32),
-	       itchygen->src.port,
-	       itchygen->dst.mac[0], itchygen->dst.mac[1], itchygen->dst.mac[2],
-	       itchygen->dst.mac[3], itchygen->dst.mac[4], itchygen->dst.mac[5],
-	       inet_ntop(AF_INET, &itchygen->dst.ip_addr, d_ip_str, 32),
-	       itchygen->dst.port, itchygen->fname ? : "itchygen.pcap",
+	       itchygen->src.port, itchygen->dst.mac[0], itchygen->dst.mac[1],
+	       itchygen->dst.mac[2], itchygen->dst.mac[3], itchygen->dst.mac[4],
+	       itchygen->dst.mac[5], inet_ntop(AF_INET, &itchygen->dst.ip_addr,
+					       d_ip_str, 32),
+	       itchygen->dst.port, itchygen->out_fname ? : "itchygen.pcap",
 	       itchygen->debug_mode ? "on" : "off",
 	       itchygen->verbose_mode ? "on" : "off", itchygen->rand_seed);
 
@@ -740,6 +742,57 @@ static void generate_orders(struct itchygen_info *itchygen)
 	submit_time_list(itchygen, ENTIRE_LIST, 0.0);
 }
 
+static void read_symbol_file(struct itchygen_info *itchygen, FILE * sym_file)
+{
+	int i = 0, ln = 0;
+	char *lf, *comma;
+	char line[4096];
+
+	while (fgets(line, sizeof(line), sym_file)) {
+		itchygen->sym_num_lines++;
+	}
+	fseek(sym_file, 0, SEEK_SET);
+
+	itchygen->symbol = calloc(itchygen->sym_num_lines,
+				  sizeof(*itchygen->symbol));
+	if (!itchygen->symbol) {
+		printf("failed to alloc %d symbol names\n",
+		       itchygen->sym_num_lines);
+		exit(ENOMEM);
+	}
+
+	while (fgets(line, sizeof(line), sym_file)) {
+		ln++;
+
+		lf = strchr(line, '\n');
+		if (lf)
+			*lf = '\0';
+		lf = strchr(line, '\r');
+		if (lf)
+			*lf = '\0';
+
+		comma = strchr(line, ',');
+		if (comma) {
+			*comma = '\0';
+			if (strlen(line) < 5)
+				generate_symbol_name(&itchygen->symbol[i++],
+						     line);
+			else {
+				if (itchygen->verbose_mode)
+					printf("%s +%d symbol longer than "
+					       "4 chars: [%s]\n",
+					       itchygen->sym_fname, ln, line);
+			}
+		} else {
+			if (itchygen->verbose_mode)
+				printf("%s +%d unexpected format: [%s]\n",
+				       itchygen->sym_fname, ln, line);
+		}
+	}
+	itchygen->num_symbols = i;
+	assert(itchygen->sym_num_lines == ln);
+}
+
 static int str_to_mac(char *str, uint8_t * mac)
 {
 	int i, err;
@@ -853,11 +906,10 @@ int main(int argc, char **argv)
 	int prob_cancel = -1;
 	int prob_replace = -1;
 	int use_seed = 0;
-	int mult, suffix, i;
+	int mult, suffix;
 	uint8_t mac[8];
 	in_addr_t ip_addr;
 	uint16_t port;
-	char line[128];
 
 	if (argc < 2)
 		usage(0, NULL);
@@ -873,12 +925,9 @@ int main(int argc, char **argv)
 		switch (ch) {
 		case 's':	/* number of symbols */
 			sym_file = fopen(optarg, "r");
-			if (sym_file) {
-				while (fgets(line, sizeof(line), sym_file) !=
-				       NULL) {
-					itchygen.num_symbols++;
-				}
-			} else {
+			if (sym_file)
+				itchygen.sym_fname = strdup(optarg);
+			else {
 				perror(optarg);
 				bad_optarg(EINVAL, ch, optarg);
 			}
@@ -1000,8 +1049,8 @@ int main(int argc, char **argv)
 			ep_addr_set_ip(&itchygen.src, ip_addr);
 			break;
 		case 'f':
-			itchygen.fname = strdup(optarg);
-			if (!itchygen.fname) {
+			itchygen.out_fname = strdup(optarg);
+			if (!itchygen.out_fname) {
 				printf("failed to alloc mem for file name\n");
 				exit(ENOMEM);
 			}
@@ -1032,7 +1081,7 @@ int main(int argc, char **argv)
 	}
 
 	if (!sym_file)
-		usage(EINVAL, "error: ymbols file name not supplied");
+		usage(EINVAL, "error: symbols file name not supplied");
 
 	if (!itchygen.time2update)
 		usage(EINVAL, "error: mean time to next update not supplied");
@@ -1113,27 +1162,9 @@ int main(int argc, char **argv)
 	symbol_len_rand_int[1].pcts_total = 20;
 	rand_interval_init(symbol_len_rand_int, 2);
 
-	itchygen.symbol =
-	    calloc(itchygen.num_symbols, sizeof(*itchygen.symbol));
-	if (!itchygen.symbol) {
-		printf("failed to alloc %d symbol names\n",
-		       itchygen.num_symbols);
-		exit(ENOMEM);
-	}
-	/* for (i = 0; i < itchygen.num_symbols; i++)
-	   generate_symbol_name(&itchygen.symbol[i], NULL); */
-	i = 0;
-	fseek(sym_file, 0, SEEK_SET);
-	while (fgets(line, sizeof(line), sym_file) != NULL) {
-		char *comma;
-
-		comma = strchr(line, ',');
-		if (comma) {
-			*comma = '\0';
-			generate_symbol_name(&itchygen.symbol[i++], line);
-		}
-	}
-	itchygen.num_symbols = i;
+	read_symbol_file(&itchygen, sym_file);
+	/* to generate random names:
+	 * generate_symbol_name(&itchygen.symbol[i], NULL); */
 	fclose(sym_file);
 
 	itchygen.order_type_prob_int[ORDER_ADD].pcts_total = 0;
@@ -1145,7 +1176,7 @@ int main(int argc, char **argv)
 
 	ulist_head_init(&itchygen.time_list);
 
-	err = pcap_file_open(itchygen.fname ? : "itchygen.pcap",
+	err = pcap_file_open(itchygen.out_fname ? : "itchygen.pcap",
 			     &itchygen.dst, &itchygen.src);
 	if (err) {
 		printf("failed to open pcap file, %m\n");
@@ -1159,8 +1190,10 @@ int main(int argc, char **argv)
 	generate_orders(&itchygen);
 
 	pcap_file_close();
-	if (itchygen.fname)
-		free(itchygen.fname);
+	if (itchygen.out_fname)
+		free(itchygen.out_fname);
+	if (itchygen.sym_fname)
+		free(itchygen.sym_fname);
 
 	return 0;
 }
