@@ -40,6 +40,7 @@
 #include <inttypes.h>
 #include <endian.h>
 #include <getopt.h>
+#include <time.h>
 
 #include "itch_proto.h"
 #include "rand_util.h"
@@ -211,18 +212,21 @@ struct itchygen_info {
 
 static void print_params(struct itchygen_info *itchygen)
 {
-	char s_ip_str[32], d_ip_str[32];
+	char time_buf[32], s_ip_str[32], d_ip_str[32];
+	time_t t = time(NULL);
 
-	printf("itchygen params:\n"
+	strftime(time_buf, sizeof(time_buf), "%F %T", localtime(&t));
+
+	printf("\nitchygen started at %s with arguments:\n"
 	       "\tsymbols file: %s, lines: %d, used: %d\n"
-	       "\trun time: %d sec, rate: %ld orders/sec, orders: %ld\n"
-	       "\tmean time to update: %d msec\n"
+	       "\trun time: %d sec, rate: %ld orders/sec, orders: %ld, "
+	       "mean update time: %d msec\n"
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
 	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
 	       "\toutput file: %s\n"
 	       "\tdbg: %s, verbose: %s\n\tseed: %d\n\n",
-	       itchygen->sym_fname, itchygen->sym_num_lines,
+	       time_buf, itchygen->sym_fname, itchygen->sym_num_lines,
 	       itchygen->num_symbols, itchygen->run_time, itchygen->orders_rate,
 	       itchygen->num_orders, itchygen->time2update,
 	       itchygen->order_type_prob_int[ORDER_EXEC].pcts_total,
@@ -1183,8 +1187,7 @@ int main(int argc, char **argv)
 		return err;
 	}
 
-	if (itchygen.verbose_mode)
-		print_params(&itchygen);
+	print_params(&itchygen);
 
 	generate_timestamps(&itchygen, run_time);
 	generate_orders(&itchygen);
