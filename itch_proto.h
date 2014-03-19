@@ -26,6 +26,8 @@
 #define ITCH_ORDER_BUY			'B'
 #define ITCH_ORDER_SELL			'S'
 
+#define ITCH_SYMBOL_LEN			8
+
 struct itch_msg_timestamp {
 	char msg_type;		/* 'T' - timestamp message */
 	uint32_t second;	/* seconds since midnight */
@@ -34,7 +36,7 @@ struct itch_msg_timestamp {
 struct itch_msg_stock_trade {
 	char msg_type;		/* 'H' - stock trading action message */
 	uint32_t timestamp_ns;	/* ns portion f the timestamp */
-	char stock[8];		/* stock symbol right padded with spaces */
+	char stock[ITCH_SYMBOL_LEN]; /* stock symbol right padded with spaces */
 	char trading_state;	/* current trading state for the stock */
 	char reserved;
 	char reason[4];		/* trading action reason */
@@ -46,7 +48,7 @@ struct itch_msg_add_order_no_mpid {
 	uint64_t ref_num;	/* unique reference assigned to the new order */
 	char buy_sell;		/* 'B' - buy, 'S' - sell */
 	uint32_t shares;	/* num of shared associated with the order */
-	char stock[8];		/* symbol for which the order is added */
+	char stock[ITCH_SYMBOL_LEN]; /* symbol for which the order is added */
 	uint32_t price;		/* display price of the order */
 } __attribute__ ((packed));
 
@@ -56,7 +58,7 @@ struct itch_msg_add_order_with_mpid {
 	uint64_t ref_num;	/* unique reference assigned to the new order */
 	char buy_sell;		/* 'B' - buy, 'S' - sell */
 	uint32_t shares;	/* num of shared associated with the order */
-	char stock[8];		/* symbol for which the order is added */
+	char stock[ITCH_SYMBOL_LEN]; /* symbol for which the order is added */
 	uint32_t price;		/* display price of the order */
 	char attribution[4];	/* NASDAQ market participant id (MPID) for the order */
 } __attribute__ ((packed));

@@ -108,10 +108,8 @@ static void version(void)
         ret;                                            \
 })
 
-#define MAX_SYMBOL_NAME	8
-
 struct trade_symbol {
-	char name[MAX_SYMBOL_NAME];
+	char name[ITCH_SYMBOL_LEN];
 	unsigned int min_price;
 	unsigned int max_price;
 	int auto_gen;
@@ -261,6 +259,7 @@ static struct rand_interval symbol_len_rand_int[2];	/* len: 3, 4 */
 static void generate_symbol_name(struct trade_symbol *symbol,
 				 const char *src_name)
 {
+	memset(symbol->name, 0, sizeof(symbol->name));
 	if (src_name) {
 		strncpy(symbol->name, src_name, sizeof(symbol->name) - 1);
 		symbol->auto_gen = 0;
@@ -270,7 +269,6 @@ static void generate_symbol_name(struct trade_symbol *symbol,
 
 		for (i = 0; i < len; i++)
 			symbol->name[i] = rand_char_capital();
-		symbol->name[len] = '\0';
 		symbol->auto_gen = 1;
 	}
 	symbol->min_price = rand_int_range(10, 600);
@@ -397,16 +395,10 @@ static int pcap_order_add(struct itchygen_info *itchygen,
 			      .price = htobe32(event->add.price),
 			      },
 	};
-	int i;
 
 	memcpy(&pkt.mold.session, "sessionabc", 10);
-	strncpy(pkt.msg.order.stock, event->symbol->name,
-		sizeof(pkt.msg.order.stock) - 1);
-
-	for (i = strlen(pkt.msg.order.stock) + 1;
-	     i < sizeof(pkt.msg.order.stock); i++) {
-		pkt.msg.order.stock[i] = '\0';
-	}
+	memcpy(pkt.msg.order.stock, event->symbol->name,
+	       sizeof(pkt.msg.order.stock));
 
 	return pcap_file_add_record(dtime_to_sec(event->time),
 				    dtime_to_usec(event->time) + 3,
