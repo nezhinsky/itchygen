@@ -614,6 +614,14 @@ static void add_to_time_list(struct itchygen_info *itchygen,
 	assert(0);
 }
 
+static double time_list_last(struct itchygen_info *itchygen)
+{
+	struct order_event *event;
+
+	event = ulist_tail(&itchygen->time_list, struct order_event, time_node);
+	return event ? event->time : -1.0;
+}
+
 static struct order_event *generate_new_order(struct itchygen_info *itchygen)
 {
 	struct order_event *order;
@@ -689,21 +697,28 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 	return event;
 }
 
-static void generate_timestamps(struct itchygen_info *itchygen, int max_seconds)
+static void generate_single_timestamp(struct itchygen_info *itchygen,
+				      unsigned int time_sec)
 {
 	struct order_event *order;
-	int i;
 
-	for (i = 0; i < max_seconds; i++) {
-		order = malloc(sizeof(*order));
-		assert(order);
+	order = malloc(sizeof(*order));
+	assert(order);
 
-		memset(order, 0, sizeof(*order));
-		order->type = ORDER_TIMESTAMP;
-		order->time = (double)i;
-		order->timestamp.seconds = i;
+	memset(order, 0, sizeof(*order));
+	order->type = ORDER_TIMESTAMP;
+	order->time = (double)time_sec;
+	order->timestamp.seconds = time_sec;
 
-		add_to_time_list(itchygen, order);
+	add_to_time_list(itchygen, order);
+}
+
+static void generate_timestamps(struct itchygen_info *itchygen)
+{
+	unsigned int i;
+
+	for (i = 0; i < itchygen->run_time; i++) {
+		generate_single_timestamp(itchygen, i);
 	}
 }
 
@@ -711,16 +726,23 @@ static void generate_orders(struct itchygen_info *itchygen)
 {
 	struct order_event *order, *event, *prev_event;
 	int n_order;
+	double time_last;
+	unsigned int time_last_sec, time_sec;
 
 	itchygen->cur_time = 0.0;
 
 	for (n_order = 0; n_order < itchygen->num_orders; n_order++) {
 		itchygen->cur_time += gen_inter_order_time(itchygen);
+
+		if (itchygen->cur_time >= itchygen->run_time) {
+			generate_single_timestamp(itchygen, itchygen->cur_time);
+			itchygen->run_time = itchygen->cur_time + 1;
+		}
+
 		/* submit all events scheduled until now */
 		submit_time_list(itchygen, SUBMIT_UNTIL, itchygen->cur_time);
 
 		order = generate_new_order(itchygen);
-		assert(order != NULL);
 
 		add_to_time_list(itchygen, order);
 		if (itchygen->debug_mode)
@@ -741,6 +763,17 @@ static void generate_orders(struct itchygen_info *itchygen)
 
 			prev_event = event;
 		} while (event->remain_shares);
+	}
+
+	time_last = time_list_last(itchygen);
+	if (time_last < 0.0)
+		return;
+	time_last_sec = dtime_to_sec(time_last);
+	if (time_last_sec >= itchygen->run_time) {
+		for (time_sec = itchygen->run_time; time_sec <= time_last_sec;
+		     time_sec++) {
+			generate_single_timestamp(itchygen, time_sec);
+		}
 	}
 	/* submit entire list */
 	submit_time_list(itchygen, ENTIRE_LIST, 0.0);
@@ -1189,7 +1222,7 @@ int main(int argc, char **argv)
 
 	print_params(&itchygen);
 
-	generate_timestamps(&itchygen, run_time);
+	generate_timestamps(&itchygen);
 	generate_orders(&itchygen);
 
 	pcap_file_close();
