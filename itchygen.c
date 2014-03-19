@@ -743,19 +743,21 @@ static void generate_orders(struct itchygen_info *itchygen)
 static int str_to_mac(char *str, uint8_t * mac)
 {
 	int i, err;
+	char ch = 0;
 
 	if (strlen(str) != 17)
 		return EINVAL;
 
 	for (i = 0; i < 6; i++) {
 		if (i < 5) {
-			if (str[3 * i + 2] != ':')
+			ch = str[3 * i + 2];
+			if (ch != ':' && ch != '-' && ch != '.')
 				return EINVAL;
 			str[3 * i + 2] = 0;
 		}
 		err = str_to_int_range(&str[3 * i], mac[i], 0, 255, 16);
 		if (i < 5)
-			str[3 * i + 2] = ':';
+			str[3 * i + 2] = ch;
 		if (err)
 			return err;
 	}
@@ -792,13 +794,13 @@ static void usage(int status, char *msg)
 	       "-C, --prob-cancel   probability of cancel (0%%-100%%)\n"
 	       "-R, --prob-replace  probability of replace (0%%-100%%)\n"
 	       "* * * missing -E/-C/-R inferred by: E + C + R = 100%%\n\n"
-	       "-m, --dst-mac       destination MAC address\n"
-	       "-M, --src-mac       source MAC address\n"
+	       "-m, --dst-mac       destination MAC address, delimited by [:-.]\n"
+	       "-M, --src-mac       source MAC address, delimited by [:-.]\n"
 	       "-i, --dst-ip        destination ip address\n"
 	       "-I, --src-ip        source ip address\n"
 	       "-p, --dst-port      destination port\n"
 	       "-P, --src-port      source port\n"
-	       "* * * port range 1024 - 65535 supported, recommended: 49152 - 65535\n\n"
+	       "* * * port range 1024..65535 supported, 49152..65535 recommended\n\n"
 	       "-f, --file          output PCAP file name\n"
 	       "-Q, --seq           sequential ref.nums, default: random\n"
 	       "-S, --rand-seed     set the seed before starting work\n"
