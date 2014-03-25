@@ -111,6 +111,10 @@ static uint16_t ip_checksum_final(uint32_t sum)
 	return ~sum;
 }
 
+#ifndef IPTOS_CLASS_CS0
+#define IPTOS_CLASS_CS0 0x0
+#endif
+
 static void create_udp_packet(struct udp_hdrs *h, void *data, size_t len)
 {
 	struct ipv4_pseudo_hdr pseudo_iphdr;
