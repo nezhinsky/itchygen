@@ -46,6 +46,7 @@
 #include "rand_util.h"
 #include "ulist.h"
 #include "pcap.h"
+#include "double_hash.h"
 
 static void usage(int status, char *msg);
 
@@ -125,6 +126,13 @@ enum order_event_type {
 	MODIFY_ORDER_NUM_TYPES,
 };
 
+#define CRC_WIDTH 20
+
+const uint32_t poly[2] = {
+	0x182671,
+	0x11522b
+};
+
 static const char *trade_outcome_str(enum order_event_type type)
 {
 	switch (type) {
@@ -180,6 +188,16 @@ struct order_event {
 	};
 };
 
+struct itchygen_stat {
+	unsigned long long orders;
+	unsigned long long execs;
+	unsigned long long cancels;
+	unsigned long long replaces;
+	unsigned int bucket_min;
+	unsigned int bucket_max;
+	unsigned int bucket_overflows;
+};
+
 struct itchygen_info {
 	unsigned int num_symbols;
 	struct trade_symbol *symbol;
@@ -190,6 +208,7 @@ struct itchygen_info {
 	unsigned int time2update;
 	int num_prob_args;
 	int seq_ref_num;
+	int no_hash_del;
 	int debug_mode;
 	int verbose_mode;
 	unsigned int rand_seed;
@@ -203,6 +222,8 @@ struct itchygen_info {
 	unsigned long long cur_ref_num;
 	unsigned long long cur_match_num;
 	unsigned long long cur_seq_num;
+	struct dhash_table dhash;
+	struct itchygen_stat stat;
 	double cur_time;
 	struct ulist_head time_list;
 	struct rand_interval order_type_prob_int[MODIFY_ORDER_NUM_TYPES];
@@ -223,7 +244,7 @@ static void print_params(struct itchygen_info *itchygen)
 	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
 	       "\toutput file: %s\n"
-	       "\tdbg: %s, verbose: %s\n\tseed: %d\n\n",
+	       "\tdbg: %s, verbose: %s ref_nums: %s\n\tseed: %d\n\n",
 	       time_buf, itchygen->sym_fname, itchygen->sym_num_lines,
 	       itchygen->num_symbols, itchygen->run_time, itchygen->orders_rate,
 	       itchygen->num_orders, itchygen->time2update,
@@ -239,7 +260,8 @@ static void print_params(struct itchygen_info *itchygen)
 					       d_ip_str, 32),
 	       itchygen->dst.port, itchygen->out_fname ? : "itchygen.pcap",
 	       itchygen->debug_mode ? "on" : "off",
-	       itchygen->verbose_mode ? "on" : "off", itchygen->rand_seed);
+	       itchygen->verbose_mode ? "on" : "off",
+	       itchygen->seq_ref_num ? "seq" : "random", itchygen->rand_seed);
 
 	if (itchygen->run_time * itchygen->orders_rate != itchygen->num_orders)
 		printf("WARNING: time * rate != orders, generation will stop "
@@ -248,10 +270,30 @@ static void print_params(struct itchygen_info *itchygen)
 
 static unsigned long long generate_ref_num(struct itchygen_info *itchygen)
 {
+	uint32_t refn32;
+	int err;
+
+ generate:
 	if (!itchygen->seq_ref_num)
-		return (unsigned long long)rand_uint32();
+		refn32 = rand_uint32();
 	else
-		return ++itchygen->cur_ref_num;
+		refn32 = (uint32_t) (++itchygen->cur_ref_num);
+
+	err = dhash_add(&itchygen->dhash, refn32);
+	if (!err)		/* added successfully */
+		return (unsigned long long)refn32;
+	if (err == EEXIST) {
+		assert(itchygen->no_hash_del);
+		return (unsigned long long)refn32;
+	}
+	if (err == ENOMEM) {	/* no space in the bucket(s) */
+		itchygen->stat.bucket_overflows++;
+		goto generate;
+	} else {
+		assert(err == ENOSPC);
+		printf("hash table full, can't generate refnum\n");
+		exit(1);
+	}
 }
 
 static struct rand_interval symbol_len_rand_int[2];	/* len: 3, 4 */
@@ -337,8 +379,8 @@ static void print_order_timestamp(struct itchygen_info *itchygen,
 }
 
 static void order_event_print(struct itchygen_info *itchygen,
-			      struct order_event *event, char *prefix,
-			      int print_seq_num)
+			      struct order_event *event,
+			      char *prefix, int print_seq_num)
 {
 	if (!print_seq_num)
 		printf("%s", prefix);
@@ -366,6 +408,25 @@ static void order_event_print(struct itchygen_info *itchygen,
 	}
 }
 
+static void print_stats(struct itchygen_info *itchygen)
+{
+	struct itchygen_stat *s = &itchygen->stat;
+	struct dhash_stat ds;
+	int i;
+
+	dhash_stat(&itchygen->dhash, &ds);
+	printf("\nstatistics:\n"
+	       "\torders:%llu exec:%llu cancel:%llu replace:%llu\n",
+	       s->orders, s->execs, s->cancels, s->replaces);
+	printf
+	    ("\thash table entries:%u, bucket all-times-max:%u, overflows:%u\n",
+	     ds.num_entries, ds.bucket_abs_max, s->bucket_overflows);
+	printf("\tbucket ");
+	for (i = 0; i <= NUM_BUCKET_VALS; i++)
+		printf("num[%d]:%d ", i, ds.bucket_num[i]);
+	printf("\n\n");
+}
+
 static void order_event_free_back(struct order_event *event)
 {
 	struct order_event *prev_event;
@@ -373,7 +434,8 @@ static void order_event_free_back(struct order_event *event)
 	do {
 		prev_event = event->prev_event;
 		free(event);
-	} while ((event = prev_event) != NULL);
+	}
+	while ((event = prev_event) != NULL);
 }
 
 static int pcap_order_add(struct itchygen_info *itchygen,
@@ -544,6 +606,11 @@ void order_event_submit(struct itchygen_info *itchygen,
 	if (itchygen->verbose_mode)
 		order_event_print(itchygen, event, ">>> ", 1);
 
+	if (!itchygen->no_hash_del && event->type == ORDER_ADD) {
+		int err = dhash_del(&itchygen->dhash,
+				    (uint32_t) event->ref_num);
+		assert(!err);
+	}
 	order_event_pcap_msg(itchygen, event);
 	itchygen->cur_seq_num++;
 }
@@ -636,6 +703,8 @@ static struct order_event *generate_new_order(struct itchygen_info *itchygen)
 
 	order->remain_shares = order->add.shares;
 	order->cur_price = order->add.price;
+
+	itchygen->stat.orders++;
 	return order;
 }
 
@@ -663,6 +732,8 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 
 		event->remain_shares =
 		    order->remain_shares - event->exec.shares;
+
+		itchygen->stat.execs++;
 		break;
 	case ORDER_CANCEL:
 		event->cancel.order = order;
@@ -670,6 +741,8 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 
 		event->remain_shares =
 		    order->remain_shares - event->cancel.shares;
+
+		itchygen->stat.cancels++;
 		break;
 	case ORDER_REPLACE:
 		event->replace.order = order;
@@ -681,6 +754,8 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 
 		event->remain_shares = event->replace.shares;
 		event->cur_price = event->replace.price;
+
+		itchygen->stat.replaces++;
 		break;
 	default:
 		assert(event->type < MODIFY_ORDER_NUM_TYPES);
@@ -754,7 +829,8 @@ static void generate_orders(struct itchygen_info *itchygen)
 				order_event_print(itchygen, event, "+++ ", 0);
 
 			prev_event = event;
-		} while (event->remain_shares);
+		}
+		while (event->remain_shares);
 	}
 
 	time_last = time_list_last(itchygen);
@@ -769,6 +845,8 @@ static void generate_orders(struct itchygen_info *itchygen)
 	}
 	/* submit entire list */
 	submit_time_list(itchygen, ENTIRE_LIST, 0.0);
+
+	print_stats(itchygen);
 }
 
 static void read_symbol_file(struct itchygen_info *itchygen, FILE * sym_file)
@@ -886,6 +964,7 @@ static void usage(int status, char *msg)
 	       "-f, --file          output PCAP file name\n"
 	       "-Q, --seq           sequential ref.nums, default: random\n"
 	       "-S, --rand-seed     set the seed before starting work\n"
+	       "    --no-hash-del   refnums not deleted from hash on expiration\n"
 	       "-d, --debug         produce debug information\n"
 	       "-v, --verbose       produce verbose output\n"
 	       "-V, --version       print version and exit\n"
@@ -912,6 +991,7 @@ static struct option const long_options[] = {
 	{"src-ip", required_argument, 0, 'I'},
 	{"file", required_argument, 0, 'f'},
 	{"seq", no_argument, 0, 'Q'},
+	{"no-hash-del", no_argument, 0, '0'},
 	{"debug", no_argument, 0, 'd'},
 	{"verbose", no_argument, 0, 'v'},
 	{"version", no_argument, 0, 'V'},
@@ -919,7 +999,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "s:t:r:n:u:E:C:R:S:m:M:p:i:P:I:f:QdvVh";
+static char *short_options = "s:t:r:n:u:E:C:R:S:m:M:p:i:P:I:f:Q0dvVh";
 
 int main(int argc, char **argv)
 {
@@ -1087,6 +1167,9 @@ int main(int argc, char **argv)
 		case 'Q':
 			itchygen.seq_ref_num = 1;
 			break;
+		case '0':
+			itchygen.no_hash_del = 1;
+			break;
 		case 'd':
 			itchygen.debug_mode = 1;
 			itchygen.verbose_mode = 1;
@@ -1178,7 +1261,8 @@ int main(int argc, char **argv)
 		} else if (prob_replace == 100) {
 			prob_cancel = prob_exec = 0;
 		} else
-			usage(EINVAL, "error: single probability argument "
+			usage(EINVAL,
+			      "error: single probability argument "
 			      "must be 100%%");
 	} else {
 		usage(EINVAL, "error: you should supply at least "
@@ -1212,12 +1296,20 @@ int main(int argc, char **argv)
 		return err;
 	}
 
+	err = dhash_init(&itchygen.dhash, CRC_WIDTH, poly, 2);
+	if (err) {
+		errno = err;
+		printf("failed to init hash table, %m\n");
+		return err;
+	}
+
 	print_params(&itchygen);
 
 	generate_timestamps(&itchygen);
 	generate_orders(&itchygen);
 
 	pcap_file_close();
+	dhash_cleanup(&itchygen.dhash);
 	if (itchygen.out_fname)
 		free(itchygen.out_fname);
 	if (itchygen.sym_fname)

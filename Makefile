@@ -1,7 +1,7 @@
 # itchygen makefile
 
 # files to compile
-ITCHYGEN_OBJS += itchygen.o rand_util.o pcap.o ulist.o
+ITCHYGEN_OBJS += itchygen.o rand_util.o pcap.o ulist.o crc.o double_hash.o
 ITCHYSERV_OBJS += itchyserv.o
 ITCHYPING_OBJS += itchyping.o
 
