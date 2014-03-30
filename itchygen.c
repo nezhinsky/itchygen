@@ -243,8 +243,8 @@ static void print_params(struct itchygen_info *itchygen)
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
 	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
-	       "\toutput file: %s\n"
-	       "\tdbg: %s, verbose: %s ref_nums: %s\n\tseed: %d\n\n",
+	       "\tdbg: %s, verbose: %s, ref_nums: %s, seed: %d\n"
+	       "\toutput file: %s\n\n",
 	       time_buf, itchygen->sym_fname, itchygen->sym_num_lines,
 	       itchygen->num_symbols, itchygen->run_time, itchygen->orders_rate,
 	       itchygen->num_orders, itchygen->time2update,
@@ -254,14 +254,15 @@ static void print_params(struct itchygen_info *itchygen)
 	       itchygen->src.mac[0], itchygen->src.mac[1], itchygen->src.mac[2],
 	       itchygen->src.mac[3], itchygen->src.mac[4], itchygen->src.mac[5],
 	       inet_ntop(AF_INET, &itchygen->src.ip_addr, s_ip_str, 32),
-	       itchygen->src.port, itchygen->dst.mac[0], itchygen->dst.mac[1],
-	       itchygen->dst.mac[2], itchygen->dst.mac[3], itchygen->dst.mac[4],
-	       itchygen->dst.mac[5], inet_ntop(AF_INET, &itchygen->dst.ip_addr,
-					       d_ip_str, 32),
-	       itchygen->dst.port, itchygen->out_fname ? : "itchygen.pcap",
+	       (uint32_t)itchygen->src.port,
+	       itchygen->dst.mac[0], itchygen->dst.mac[1], itchygen->dst.mac[2],
+	       itchygen->dst.mac[3], itchygen->dst.mac[4], itchygen->dst.mac[5],
+	       inet_ntop(AF_INET, &itchygen->dst.ip_addr, d_ip_str, 32),
+	       (uint32_t)itchygen->dst.port,
 	       itchygen->debug_mode ? "on" : "off",
 	       itchygen->verbose_mode ? "on" : "off",
-	       itchygen->seq_ref_num ? "seq" : "random", itchygen->rand_seed);
+	       itchygen->seq_ref_num ? "seq" : "random", itchygen->rand_seed,
+	       itchygen->out_fname ? : "itchygen.pcap");
 
 	if (itchygen->run_time * itchygen->orders_rate != itchygen->num_orders)
 		printf("WARNING: time * rate != orders, generation will stop "
