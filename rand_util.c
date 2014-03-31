@@ -101,7 +101,7 @@ int rand_int_range(int from, int to)
 	rand_interval_sz = RAND_MAX / num_intervals;
 	interval_index = rand_num / rand_interval_sz;
 	if (interval_index == num_intervals)
-		interval_index --;
+		interval_index--;
 	ret_val += interval_index;
 
 	return ret_val;

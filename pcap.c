@@ -39,6 +39,9 @@
 
 #include "pcap.h"
 
+#define likely(x)	__builtin_expect(!!(x), 1)
+#define unlikely(x)	__builtin_expect((x), 0)
+
 struct udp_hdrs {
 	struct ether_header ether;
 	struct iphdr ip;
@@ -160,27 +163,27 @@ static void create_udp_packet(struct udp_hdrs *h, void *data, size_t len)
 int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 			 void *data, size_t len)
 {
-	size_t n;
-	struct pcap_record_hdr pcap_rechdr = {
-		.ts_sec = tsec,
-		.ts_usec = tusec,
-		.incl_len = sizeof(struct udp_hdrs) + len,
-		.orig_len = sizeof(struct udp_hdrs) + len,
+	struct hdrs {
+		struct pcap_record_hdr pcap_rec;
+		struct udp_hdrs udp;
+	} __attribute__ ((packed)) hdrs = {
+		.pcap_rec = {
+			.ts_sec = tsec,
+			.ts_usec = tusec,
+			.incl_len = sizeof(struct udp_hdrs) + len,
+			.orig_len = sizeof(struct udp_hdrs) + len,
+		},
 	};
-	struct udp_hdrs udp_hdrs;
+	size_t n;
 
-	n = fwrite(&pcap_rechdr, sizeof(pcap_rechdr), 1, fpcap);
-	if (n < 1)
-		goto add_rec_failed;
+	create_udp_packet(&hdrs.udp, data, len);
 
-	create_udp_packet(&udp_hdrs, data, len);
-
-	n = fwrite(&udp_hdrs, sizeof(udp_hdrs), 1, fpcap);
-	if (n < 1)
+	n = fwrite(&hdrs, sizeof(hdrs), 1, fpcap);
+	if (unlikely(n < 1))
 		goto add_rec_failed;
 
 	n = fwrite(data, len, 1, fpcap);
-	if (n < 1)
+	if (unlikely(n < 1))
 		goto add_rec_failed;
 
 	return 0;
