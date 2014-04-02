@@ -59,6 +59,14 @@ struct ipv4_pseudo_hdr {
 static FILE *fpcap;
 struct endpoint_addr _dst, _src;
 
+void pcap_file_close(void)
+{
+	if (fpcap) {
+		fclose(fpcap);
+		fpcap = NULL;
+	}
+}
+
 int pcap_file_open(char *fname,
 		   struct endpoint_addr *dst, struct endpoint_addr *src)
 {
@@ -78,9 +86,12 @@ int pcap_file_open(char *fname,
 		return errno;
 	fseek(fpcap, 0l, SEEK_SET);
 	n = fwrite(&ghdr, sizeof(ghdr), 1, fpcap);
-	if (n < 1) {
-		fclose(fpcap);
-		return errno;
+	if (n != 1) {
+		int err = EINVAL;
+		if (ferror(fpcap))
+			err = errno;
+		pcap_file_close();
+		return err;
 	}
 
 	_dst = *dst;
@@ -163,7 +174,7 @@ static void create_udp_packet(struct udp_hdrs *h, void *data, size_t len)
 int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 			 void *data, size_t len)
 {
-	struct hdrs {
+	struct {
 		struct pcap_record_hdr pcap_rec;
 		struct udp_hdrs udp;
 	} __attribute__ ((packed)) hdrs = {
@@ -174,27 +185,23 @@ int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 			.orig_len = sizeof(struct udp_hdrs) + len,
 		},
 	};
+	int err = EINVAL;
 	size_t n;
 
 	create_udp_packet(&hdrs.udp, data, len);
 
 	n = fwrite(&hdrs, sizeof(hdrs), 1, fpcap);
-	if (unlikely(n < 1))
+	if (unlikely(n != 1))
 		goto add_rec_failed;
 
 	n = fwrite(data, len, 1, fpcap);
-	if (unlikely(n < 1))
+	if (unlikely(n != 1))
 		goto add_rec_failed;
 
 	return 0;
 
  add_rec_failed:
-	n = errno;
-	fclose(fpcap);
-	return n;
-}
-
-void pcap_file_close(void)
-{
-	fclose(fpcap);
+	if (ferror(fpcap))
+		err = errno;
+	return err;
 }

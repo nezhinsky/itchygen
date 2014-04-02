@@ -6,7 +6,7 @@ ITCHYSERV_OBJS += itchyserv.o
 ITCHYPING_OBJS += itchyping.o
 
 # libraries to use
-ITCHYGEN_LIBS += -lm
+ITCHYGEN_LIBS += -lm -lpthread
 ITCHYSERV_LIBS +=
 ITCHYPING_LIBS +=
 

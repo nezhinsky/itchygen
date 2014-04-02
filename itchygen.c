@@ -41,6 +41,8 @@
 #include <endian.h>
 #include <getopt.h>
 #include <time.h>
+#include <pthread.h>
+#include <sched.h>
 
 #include "itch_proto.h"
 #include "rand_util.h"
@@ -212,6 +214,13 @@ struct time_list {
 	unsigned int last_unit;
 };
 
+struct ev_queue {
+	pthread_mutex_t ev_list_mutex;
+	pthread_cond_t ev_list_cond;
+	struct ulist_head ev_list;
+	int active;
+};
+
 struct itchygen_info {
 	unsigned int num_symbols;
 	struct trade_symbol *symbol;
@@ -233,6 +242,7 @@ struct itchygen_info {
 	struct endpoint_addr dst;
 	struct endpoint_addr src;
 
+	int active;
 	unsigned long long cur_ref_num;
 	unsigned long long cur_match_num;
 	unsigned long long cur_seq_num;
@@ -240,6 +250,7 @@ struct itchygen_info {
 	struct itchygen_stat stat;
 	double cur_time;
 	struct time_list time_list;
+	struct ev_queue ev_queue;
 	struct rand_interval order_type_prob_int[MODIFY_ORDER_NUM_TYPES];
 };
 
@@ -250,7 +261,7 @@ static void print_params(struct itchygen_info *itchygen)
 
 	strftime(time_buf, sizeof(time_buf), "%F %T", localtime(&t));
 
-	printf("\nitchygen started at %s with arguments:\n"
+	printf("\nitchygen ver %s started at %s with arguments:\n"
 	       "\tsymbols file: %s, lines: %d, used: %d\n"
 	       "\trun time: %d sec, rate: %ld orders/sec, orders: %ld, "
 	       "mean update time: %d msec\n"
@@ -259,7 +270,8 @@ static void print_params(struct itchygen_info *itchygen)
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
 	       "\tdbg: %s, verbose: %s, ref_nums: %s, seed: %d\n"
 	       "\toutput file: %s\n\n",
-	       time_buf, itchygen->sym_fname, itchygen->sym_num_lines,
+	       itchygen_version, time_buf,
+	       itchygen->sym_fname, itchygen->sym_num_lines,
 	       itchygen->num_symbols, itchygen->run_time, itchygen->orders_rate,
 	       itchygen->num_orders, itchygen->time2update,
 	       itchygen->order_type_prob_int[ORDER_EXEC].pcts_total,
@@ -492,7 +504,7 @@ static int pcap_order_cancel(struct itchygen_info *itchygen,
 			 },
 		.msg.cancel = {
 			       .msg_type = MSG_TYPE_ORDER_CANCEL,
-			       .timestamp_ns = htobe32(event->t_sec),
+			       .timestamp_ns = htobe32(event->t_nsec),
 			       .ref_num = htobe64(event->ref_num),
 			       .shares = htobe32(event->cancel.shares),
 			       },
@@ -515,7 +527,7 @@ static int pcap_order_exec(struct itchygen_info *itchygen,
 			 },
 		.msg.exec = {
 			     .msg_type = MSG_TYPE_ORDER_EXECUTED,
-			     .timestamp_ns = htobe32(event->t_sec),
+			     .timestamp_ns = htobe32(event->t_nsec),
 			     .ref_num = htobe64(event->ref_num),
 			     .shares = htobe32(event->exec.shares),
 			     .match_num = htobe64(event->exec.match_num),
@@ -541,7 +553,7 @@ static int pcap_order_replace(struct itchygen_info *itchygen,
 			 },
 		.msg.replace = {
 				.msg_type = MSG_TYPE_ORDER_REPLACE,
-				.timestamp_ns = htobe32(event->t_sec),
+				.timestamp_ns = htobe32(event->t_nsec),
 				.orig_ref_num =
 				htobe64(event->replace.orig_ref_num),
 				.new_ref_num = htobe64(event->ref_num),
@@ -609,6 +621,49 @@ static void order_event_pcap_msg(struct itchygen_info *itchygen,
 		printf("failed to write to pcap file, %m\n");
 		exit(err);
 	}
+	itchygen->cur_seq_num++;
+}
+
+static void ev_queue_init(struct ev_queue *q)
+{
+	pthread_mutex_init(&q->ev_list_mutex, NULL);
+	pthread_cond_init(&q->ev_list_cond, NULL);
+	ulist_head_init(&q->ev_list);
+	q->active = 1;
+}
+
+static void ev_queue_push(struct ev_queue *q, struct order_event *event)
+{
+	pthread_mutex_lock(&q->ev_list_mutex);
+	ulist_add_tail(&q->ev_list, &event->time_node);
+	pthread_cond_signal(&q->ev_list_cond);
+	pthread_mutex_unlock(&q->ev_list_mutex);
+}
+
+static struct order_event *ev_queue_pop(struct ev_queue *q)
+{
+	struct order_event *event;
+
+	pthread_mutex_lock(&q->ev_list_mutex);
+	while (ulist_empty(&q->ev_list) && q->active)
+		pthread_cond_wait(&q->ev_list_cond, &q->ev_list_mutex);
+	event = ulist_pop(&q->ev_list, struct order_event, time_node);
+	pthread_mutex_unlock(&q->ev_list_mutex);
+
+	return event;
+}
+
+static void ev_queue_shutdown(struct ev_queue *q)
+{
+	pthread_mutex_lock(&q->ev_list_mutex);
+	while (!ulist_empty(&q->ev_list)) {
+		pthread_mutex_unlock(&q->ev_list_mutex);
+		sched_yield();
+		pthread_mutex_lock(&q->ev_list_mutex);
+	}
+	q->active = 0;
+	pthread_cond_signal(&q->ev_list_cond);
+	pthread_mutex_unlock(&q->ev_list_mutex);
 }
 
 void order_event_submit(struct itchygen_info *itchygen,
@@ -622,11 +677,12 @@ void order_event_submit(struct itchygen_info *itchygen,
 				    (uint32_t) event->ref_num);
 		assert(!err);
 	}
-	order_event_pcap_msg(itchygen, event);
-	itchygen->cur_seq_num++;
+	ev_queue_push(&itchygen->ev_queue, event);
 }
 
-#define TUNIT_SEC_SHIFT	9
+#define TUNIT_SEC_SHIFT  9
+#define TUNIT_NSEC_SHIFT (32 - TUNIT_SEC_SHIFT)
+#define TUNIT_NSEC_MASK  ((1L << TUNIT_NSEC_SHIFT) - 1)
 
 static void time_list_init(struct itchygen_info *itchygen)
 {
@@ -655,8 +711,6 @@ static void submit_entire_list(struct itchygen_info *itchygen,
 		if (unlikely(itchygen->debug_mode))
 			printf("timelist: delete %2.9f\n", event->time);
 		order_event_submit(itchygen, event);
-		if (!event->remain_shares)
-			order_event_free_back(event);
 	}
 }
 
@@ -674,8 +728,6 @@ static struct order_event *submit_list_until(struct itchygen_info *itchygen,
 		if (unlikely(itchygen->debug_mode))
 			printf("timelist: delete %2.9f\n", event->time);
 		order_event_submit(itchygen, event);
-		if (!event->remain_shares)
-			order_event_free_back(event);
 	}
 	return NULL;
 }
@@ -688,11 +740,12 @@ static void time_list_submit(struct itchygen_info *itchygen,
 	struct ulist_head *uhead;
 	struct order_event *event;
 
+	if (add_event && add_event->unit_id > time_list->last_unit)
+		time_list->last_unit = add_event->unit_id;
+
 	for (unit_id = time_list->first_unit;
 	     unit_id <= time_list->last_unit; unit_id++) {
 		uhead = &time_list->head[unit_id];
-		if (ulist_empty(uhead))
-			continue;
 
 		if (!add_event || unit_id != add_event->unit_id)
 			submit_entire_list(itchygen, uhead);
@@ -782,8 +835,8 @@ static inline void set_event_time(struct order_event *event, double dt)
 	event->t_sec = dtime_to_sec(dt);
 	event->t_nsec = dtime_to_nsec(dt);
 	event->unit_id = (event->t_sec << TUNIT_SEC_SHIFT) |
-	    (event->t_nsec >> (32 - TUNIT_SEC_SHIFT));
-	event->unit_time = (event->t_nsec & 0x0fffffff);
+	    (event->t_nsec >> TUNIT_NSEC_SHIFT);
+	event->unit_time = (event->t_nsec & TUNIT_NSEC_MASK);
 }
 
 static struct order_event *generate_new_order(struct itchygen_info
@@ -877,17 +930,17 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 static void generate_single_timestamp(struct itchygen_info *itchygen,
 				      unsigned int time_sec)
 {
-	struct order_event *order;
+	struct order_event *event;
 
-	order = malloc(sizeof(*order));
-	assert(order);
+	event = malloc(sizeof(*event));
+	assert(event);
 
-	memset(order, 0, sizeof(*order));
-	order->type = ORDER_TIMESTAMP;
-	order->time = (double)time_sec;
-	order->timestamp.seconds = time_sec;
+	memset(event, 0, sizeof(*event));
+	event->type = ORDER_TIMESTAMP;
+	set_event_time(event, (double)time_sec);
+	event->timestamp.seconds = time_sec;
 
-	time_list_insert(itchygen, order);
+	time_list_insert(itchygen, event);
 }
 
 static void generate_timestamps(struct itchygen_info *itchygen)
@@ -899,14 +952,16 @@ static void generate_timestamps(struct itchygen_info *itchygen)
 	}
 }
 
-static void generate_orders(struct itchygen_info *itchygen)
+static void *event_generator_thrd(void *arg)
 {
+	struct itchygen_info *itchygen = arg;
 	struct order_event *order, *event, *prev_event;
 	int n_order;
 	double time_last;
 	unsigned int time_last_sec, time_sec;
 
 	itchygen->cur_time = 0.0;
+	generate_timestamps(itchygen);
 
 	for (n_order = 0; n_order < itchygen->num_orders; n_order++) {
 		itchygen->cur_time += gen_inter_order_time(itchygen);
@@ -917,6 +972,7 @@ static void generate_orders(struct itchygen_info *itchygen)
 		}
 
 		order = generate_new_order(itchygen);
+		assert(order != NULL);
 
 		/* insert order and submit all events scheduled until now */
 		time_list_submit(itchygen, order);
@@ -943,19 +999,39 @@ static void generate_orders(struct itchygen_info *itchygen)
 	}
 
 	time_last = time_list_last(itchygen);
-	if (time_last < 0.0)
-		return;
-	time_last_sec = dtime_to_sec(time_last);
-	if (time_last_sec >= itchygen->run_time) {
-		for (time_sec = itchygen->run_time;
-		     time_sec <= time_last_sec; time_sec++) {
-			generate_single_timestamp(itchygen, time_sec);
+	if (time_last >= 0.0) {
+		time_last_sec = dtime_to_sec(time_last);
+		if (time_last_sec >= itchygen->run_time) {
+			for (time_sec = itchygen->run_time;
+			     time_sec <= time_last_sec; time_sec++) {
+				generate_single_timestamp(itchygen, time_sec);
+			}
 		}
 	}
 	/* submit entire list */
 	time_list_submit(itchygen, NULL);
+	printf("waiting until ev list empty\n");
+	ev_queue_shutdown(&itchygen->ev_queue);
+	itchygen->active = 0;
+	printf("generator exits...\n");
+	pthread_exit(NULL);
+}
 
-	print_stats(itchygen);
+static void *pcap_writer_thrd(void *arg)
+{
+	struct itchygen_info *itchygen = arg;
+	struct order_event *event;
+
+	while (itchygen->active) {
+		event = ev_queue_pop(&itchygen->ev_queue);
+		if (unlikely(!event))
+			break;
+		order_event_pcap_msg(itchygen, event);
+		if (!event->remain_shares)
+			order_event_free_back(event);
+	}
+	printf("pcap writer exits...\n");
+	pthread_exit(NULL);
 }
 
 static void read_symbol_file(struct itchygen_info *itchygen, FILE * sym_file)
@@ -1127,6 +1203,7 @@ int main(int argc, char **argv)
 	int prob_replace = -1;
 	int use_seed = 0;
 	int mult, suffix;
+	pthread_t thread1, thread2;
 	uint8_t mac[8];
 	in_addr_t ip_addr;
 	uint16_t port;
@@ -1402,13 +1479,7 @@ int main(int argc, char **argv)
 			   MODIFY_ORDER_NUM_TYPES);
 
 	time_list_init(&itchygen);
-
-	err = pcap_file_open(itchygen.out_fname ? : "itchygen.pcap",
-			     &itchygen.dst, &itchygen.src);
-	if (err) {
-		printf("failed to open pcap file, %m\n");
-		return err;
-	}
+	ev_queue_init(&itchygen.ev_queue);
 
 	err = dhash_init(&itchygen.dhash, CRC_WIDTH, poly, 2);
 	if (err) {
@@ -1417,13 +1488,35 @@ int main(int argc, char **argv)
 		return err;
 	}
 
+	err = pcap_file_open(itchygen.out_fname ? : "itchygen.pcap",
+			     &itchygen.dst, &itchygen.src);
+	if (err) {
+		errno = err;
+		printf("failed to open pcap file, %m\n");
+		return errno;
+	}
+
 	print_params(&itchygen);
 
-	generate_timestamps(&itchygen);
-	generate_orders(&itchygen);
+	itchygen.active = 1;
+	err = pthread_create(&thread1, NULL, event_generator_thrd, &itchygen);
+	if (err) {
+		printf("Failed to create generator thread, %m\n");
+		return errno;
+	}
+	err = pthread_create(&thread2, NULL, pcap_writer_thrd, &itchygen);
+	if (err) {
+		printf("Failed to create pcap writer thread, %m\n");
+		return errno;
+	}
+	pthread_join(thread1, NULL);
+	pthread_join(thread2, NULL);
 
 	pcap_file_close();
+
+	print_stats(&itchygen);
 	dhash_cleanup(&itchygen.dhash);
+
 	if (itchygen.out_fname)
 		free(itchygen.out_fname);
 	if (itchygen.sym_fname)
