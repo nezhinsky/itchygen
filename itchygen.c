@@ -55,7 +55,7 @@
 
 static void usage(int status, char *msg);
 
-static char itchygen_version[] = "0.2";
+static char itchygen_version[] = "0.3";
 static char program_name[] = "itchygen";
 
 static void version(void)
@@ -166,6 +166,7 @@ struct order_event {
 	unsigned int t_nsec;
 	unsigned int unit_id;
 	unsigned int unit_time;
+	unsigned long long seq_num;
 	unsigned long long ref_num;
 	unsigned int remain_shares;
 	unsigned int cur_price;
@@ -359,8 +360,9 @@ static void print_order_add(struct itchygen_info *itchygen,
 			    struct order_event *order)
 {
 	printf
-	    ("time: %2.9f %s ADD order ref: %lld shares: %d price: %d, req: %s\n",
-	     order->time, order->symbol->name, order->ref_num,
+	    ("time: %u.%09u %s ADD order ref: %lld shares: %d price: %d, req: %s\n",
+	     order->t_sec, order->t_nsec,
+	     order->symbol->name, order->ref_num,
 	     order->add.shares, order->add.price,
 	     order->add.buy ? "BUY" : "SELL");
 }
@@ -369,9 +371,9 @@ static void print_order_exec(struct itchygen_info *itchygen,
 			     struct order_event *event)
 {
 	struct order_event *order = event->exec.order;
-	printf("time: %2.9f %s %s order ref: %lld shares: %d price: %d "
+	printf("time: %u.%09u %s %s order ref: %lld shares: %d price: %d "
 	       "match: %lld, remains: %d\n",
-	       event->time, order->symbol->name,
+	       event->t_sec, event->t_nsec, order->symbol->name,
 	       trade_outcome_str(event->type),
 	       order->ref_num, event->exec.shares, event->exec.price,
 	       event->exec.match_num, event->remain_shares);
@@ -381,8 +383,8 @@ static void print_order_cancel(struct itchygen_info *itchygen,
 			       struct order_event *event)
 {
 	struct order_event *order = event->cancel.order;
-	printf("time: %2.9f %s %s order ref: %lld shares: %d, remains: %d\n",
-	       event->time, order->symbol->name,
+	printf("time: %u.%09u %s %s order ref: %lld shares: %d, remains: %d\n",
+	       event->t_sec, event->t_nsec, order->symbol->name,
 	       trade_outcome_str(event->type),
 	       order->ref_num, event->cancel.shares, event->remain_shares);
 }
@@ -392,8 +394,9 @@ static void print_order_replace(struct itchygen_info *itchygen,
 {
 	struct order_event *order = event->replace.order;
 	printf
-	    ("time: %2.9f %s %s order ref: %lld -> %lld shares: %d price: %d\n",
-	     event->time, order->symbol->name, trade_outcome_str(event->type),
+	    ("time: %u.%09u %s %s order ref: %lld -> %lld shares: %d price: %d\n",
+	     event->t_sec, event->t_nsec,
+	     order->symbol->name, trade_outcome_str(event->type),
 	     event->replace.orig_ref_num, event->ref_num, event->replace.shares,
 	     event->replace.price);
 }
@@ -401,8 +404,8 @@ static void print_order_replace(struct itchygen_info *itchygen,
 static void print_order_timestamp(struct itchygen_info *itchygen,
 				  struct order_event *event)
 {
-	printf("time: %2.9f timestamp: %d sec\n",
-	       event->time, event->timestamp.seconds);
+	printf("time: %u.%09u timestamp: %d sec\n",
+	       event->t_sec, event->t_nsec, event->timestamp.seconds);
 }
 
 static void order_event_print(struct itchygen_info *itchygen,
@@ -410,9 +413,9 @@ static void order_event_print(struct itchygen_info *itchygen,
 			      char *prefix, int print_seq_num)
 {
 	if (!print_seq_num)
-		printf("%s", prefix);
+		printf("%s ", prefix);
 	else
-		printf("%s %lld ", prefix, itchygen->cur_seq_num);
+		printf("%s %lld ", prefix, event->seq_num);
 
 	switch (event->type) {
 	case ORDER_ADD:
@@ -470,7 +473,7 @@ static int pcap_order_add(struct itchygen_info *itchygen,
 {
 	struct itch_packet pkt = {
 		.mold = {
-			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .seq_num = htobe64(event->seq_num),
 			 .msg_cnt = htobe16(1),
 			 },
 		.msg.order = {
@@ -499,7 +502,7 @@ static int pcap_order_cancel(struct itchygen_info *itchygen,
 {
 	struct itch_packet pkt = {
 		.mold = {
-			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .seq_num = htobe64(event->seq_num),
 			 .msg_cnt = htobe16(1),
 			 },
 		.msg.cancel = {
@@ -522,7 +525,7 @@ static int pcap_order_exec(struct itchygen_info *itchygen,
 {
 	struct itch_packet pkt = {
 		.mold = {
-			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .seq_num = htobe64(event->seq_num),
 			 .msg_cnt = htobe16(1),
 			 },
 		.msg.exec = {
@@ -548,7 +551,7 @@ static int pcap_order_replace(struct itchygen_info *itchygen,
 {
 	struct itch_packet pkt = {
 		.mold = {
-			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .seq_num = htobe64(event->seq_num),
 			 .msg_cnt = htobe16(1),
 			 },
 		.msg.replace = {
@@ -574,7 +577,7 @@ static int pcap_order_timestamp(struct itchygen_info *itchygen,
 {
 	struct itch_packet pkt = {
 		.mold = {
-			 .seq_num = htobe64(itchygen->cur_seq_num),
+			 .seq_num = htobe64(event->seq_num),
 			 .msg_cnt = htobe16(1),
 			 },
 		.msg.time = {
@@ -621,7 +624,6 @@ static void order_event_pcap_msg(struct itchygen_info *itchygen,
 		printf("failed to write to pcap file, %m\n");
 		exit(err);
 	}
-	itchygen->cur_seq_num++;
 }
 
 static void ev_queue_init(struct ev_queue *q)
@@ -669,6 +671,8 @@ static void ev_queue_shutdown(struct ev_queue *q)
 void order_event_submit(struct itchygen_info *itchygen,
 			struct order_event *event)
 {
+	event->seq_num = itchygen->cur_seq_num++;
+
 	if (unlikely(itchygen->verbose_mode))
 		order_event_print(itchygen, event, ">>>", 1);
 
@@ -709,27 +713,32 @@ static void submit_entire_list(struct itchygen_info *itchygen,
 	ulist_for_each_safe(uhead, event, next, time_node) {
 		ulist_del_from(uhead, &event->time_node);
 		if (unlikely(itchygen->debug_mode))
-			printf("timelist: delete %2.9f\n", event->time);
+			printf("timelist: delete %u.%09u\n",
+			       event->t_sec, event->t_nsec);
 		order_event_submit(itchygen, event);
 	}
 }
 
-static struct order_event *submit_list_until(struct itchygen_info *itchygen,
-					     struct ulist_head *uhead,
-					     unsigned int until_unit_time)
+static void submit_list_up_to_event(struct itchygen_info *itchygen,
+				    struct ulist_head *uhead,
+				    struct order_event *add_event)
 {
 	struct order_event *event, *next;
 
 	ulist_for_each_safe(uhead, event, next, time_node) {
-		if (event->unit_time >= until_unit_time)
-			return event;
+		if (event->unit_time > add_event->unit_time)
+			break;
 
 		ulist_del_from(uhead, &event->time_node);
 		if (unlikely(itchygen->debug_mode))
-			printf("timelist: delete %2.9f\n", event->time);
+			printf("timelist: delete %u.%09u\n",
+			       event->t_sec, event->t_nsec);
 		order_event_submit(itchygen, event);
 	}
-	return NULL;
+	if (unlikely(itchygen->debug_mode))
+		printf("timelist: direct submit %u.%09u\n",
+		       add_event->t_sec, add_event->t_nsec);
+	order_event_submit(itchygen, add_event);
 }
 
 static void time_list_submit(struct itchygen_info *itchygen,
@@ -738,7 +747,6 @@ static void time_list_submit(struct itchygen_info *itchygen,
 	struct time_list *time_list = &itchygen->time_list;
 	unsigned int unit_id;
 	struct ulist_head *uhead;
-	struct order_event *event;
 
 	if (add_event && add_event->unit_id > time_list->last_unit)
 		time_list->last_unit = add_event->unit_id;
@@ -750,21 +758,7 @@ static void time_list_submit(struct itchygen_info *itchygen,
 		if (!add_event || unit_id != add_event->unit_id)
 			submit_entire_list(itchygen, uhead);
 		else {
-			event = submit_list_until(itchygen, uhead,
-						  add_event->unit_time);
-			if (!event) {
-				ulist_add_tail(uhead, &add_event->time_node);
-				if (unlikely(itchygen->debug_mode))
-					printf("timelist: add tail %2.9f\n",
-					       add_event->time);
-			} else {	/* place found - add before the node */
-				ulist_insert(uhead, &add_event->time_node,
-					     event->time_node.prev);
-				if (unlikely(itchygen->debug_mode))
-					printf("timelist: insert %2.9f "
-					       "before %2.9f\n",
-					       add_event->time, event->time);
-			}
+			submit_list_up_to_event(itchygen, uhead, add_event);
 			time_list->first_unit = unit_id;
 			if (unit_id > time_list->last_unit)
 				time_list->last_unit = unit_id;
@@ -791,7 +785,8 @@ static void time_list_insert(struct itchygen_info *itchygen,
 		/* list empty or less than first - add as head */
 		ulist_add(uhead, &add_event->time_node);
 		if (unlikely(itchygen->debug_mode))
-			printf("timelist: add head %2.9f\n", add_event->time);
+			printf("timelist: add head %u.%09u\n",
+			       add_event->t_sec, add_event->t_nsec);
 		return;
 	}
 	event = ulist_tail(uhead, struct order_event, time_node);
@@ -799,7 +794,8 @@ static void time_list_insert(struct itchygen_info *itchygen,
 		/* greater than last - add as tail */
 		ulist_add_tail(uhead, &add_event->time_node);
 		if (unlikely(itchygen->debug_mode))
-			printf("timelist: add tail %2.9f\n", add_event->time);
+			printf("timelist: add tail %u.%09u\n",
+			       add_event->t_sec, add_event->t_nsec);
 		return;
 	}
 
@@ -810,8 +806,10 @@ static void time_list_insert(struct itchygen_info *itchygen,
 				     &event->time_node);
 			if (unlikely(itchygen->debug_mode))
 				printf
-				    ("timelist: insert %2.9f between %2.9f - %2.9f\n",
-				     add_event->time, event->time, next->time);
+				    ("timelist: insert %u.%09u between %u.%09u - %u.%09u\n",
+				     add_event->t_sec, add_event->t_nsec,
+				     event->t_sec, event->t_nsec,
+				     next->t_sec, next->t_nsec);
 			return;
 		}
 	}
@@ -839,8 +837,8 @@ static inline void set_event_time(struct order_event *event, double dt)
 	event->unit_time = (event->t_nsec & TUNIT_NSEC_MASK);
 }
 
-static struct order_event *generate_new_order(struct itchygen_info
-					      *itchygen)
+static struct order_event *generate_new_order(struct itchygen_info *itchygen,
+					      double order_time)
 {
 	struct order_event *order;
 	int symbol_index;
@@ -853,7 +851,7 @@ static struct order_event *generate_new_order(struct itchygen_info
 	order->prev_event = NULL;
 	symbol_index = rand_int_range(0, itchygen->num_symbols - 1);
 	order->symbol = &itchygen->symbol[symbol_index];
-	set_event_time(order, itchygen->cur_time);
+	set_event_time(order, order_time);
 	assert(order->unit_id < itchygen->time_list.time_units);
 	order->ref_num = generate_ref_num(itchygen);
 	order->add.buy = rand_int_range(0, 1);
@@ -868,7 +866,8 @@ static struct order_event *generate_new_order(struct itchygen_info
 	return order;
 }
 
-static struct order_event *generate_modify_event(struct itchygen_info *itchygen, struct order_event *order,	/* original order */
+static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
+						 struct order_event *order,	/* original order */
 						 struct order_event
 						 *prev_event)
 {
@@ -971,14 +970,13 @@ static void *event_generator_thrd(void *arg)
 			itchygen->run_time = itchygen->cur_time + 1;
 		}
 
-		order = generate_new_order(itchygen);
+		order = generate_new_order(itchygen, itchygen->cur_time);
 		assert(order != NULL);
+		if (unlikely(itchygen->debug_mode))
+			order_event_print(itchygen, order, "+++", 0);
 
 		/* insert order and submit all events scheduled until now */
 		time_list_submit(itchygen, order);
-		//time_list_insert(itchygen, order);
-		if (unlikely(itchygen->debug_mode))
-			order_event_print(itchygen, order, "+++ ", 0);
 
 		prev_event = order;
 		do {
@@ -988,11 +986,10 @@ static void *event_generator_thrd(void *arg)
 
 			if (event->type == ORDER_REPLACE)
 				order = event;
+			if (unlikely(itchygen->debug_mode))
+				order_event_print(itchygen, event, "+++", 0);
 
 			time_list_insert(itchygen, event);
-			if (unlikely(itchygen->debug_mode))
-				order_event_print(itchygen, event, "+++ ", 0);
-
 			prev_event = event;
 		}
 		while (event->remain_shares);
