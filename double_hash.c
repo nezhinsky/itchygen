@@ -50,6 +50,22 @@ int dhash_add(struct dhash_table *dhash, uint32_t val)
 	}
 }
 
+int dhash_find(struct dhash_table *dhash, uint32_t val)
+{
+	struct dhash_bucket *bucket;
+	crc_t crc_val;
+	int p, i;
+
+	for (p = 0; p < dhash->num_poly; p++) {
+		crc_val = calc_crc_uint32_table(&dhash->crc_poly[p], val);
+		bucket = &dhash->bucket[crc_val];
+		i = dhash_bucket_val_find(bucket, val);
+		if (i >= 0)
+			return 0;
+	}
+	return ENOENT;
+}
+
 int dhash_del(struct dhash_table *dhash, uint32_t val)
 {
 	struct dhash_bucket *bucket;

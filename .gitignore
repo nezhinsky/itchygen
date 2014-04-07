@@ -2,7 +2,10 @@
 *.d
 *.*~
 *.pcap
+*.txt
+*.log
 itchygen
 itchyserv
 itchyping
+itchyparse
 nbproject

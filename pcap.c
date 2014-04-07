@@ -57,7 +57,18 @@ struct ipv4_pseudo_hdr {
 } __attribute__ ((packed));
 
 static FILE *fpcap;
+long offset;
 struct endpoint_addr _dst, _src;
+
+static int pcap_err(void)
+{
+	if (ferror(fpcap))
+		return  errno;
+	else if (feof(fpcap))
+		return ENOENT;
+	else
+		return EINVAL;
+}
 
 void pcap_file_close(void)
 {
@@ -67,10 +78,8 @@ void pcap_file_close(void)
 	}
 }
 
-int pcap_file_open(char *fname,
-		   struct endpoint_addr *dst, struct endpoint_addr *src)
+static int pcap_file_add_global_hdr(void)
 {
-	size_t n;
 	struct pcap_global_hdr ghdr = {
 		.magic_number = PCAP_MAGIC_ORIG,
 		.version_major = PCAP_VER_MAJOR,
@@ -80,24 +89,50 @@ int pcap_file_open(char *fname,
 		.snaplen = PCAP_SNAP_LEN,
 		.network = PCAP_NET_ETH,
 	};
+	size_t n = fwrite(&ghdr, sizeof(ghdr), 1, fpcap);
+	if (unlikely(n != 1))
+		return pcap_err();
+	offset += sizeof(ghdr);
+	return 0;
+}
+
+static int pcap_file_skip_global_hdr(void)
+{
+	struct pcap_global_hdr glob_hdr;
+	size_t n = fread(&glob_hdr, sizeof(glob_hdr), 1, fpcap);
+	if (unlikely(n != 1))
+		return pcap_err();
+	offset += sizeof(glob_hdr);
+	return 0;
+}
+
+int pcap_file_open(char *fname,
+		   struct endpoint_addr *dst, struct endpoint_addr *src)
+{
+	int err;
 
 	fpcap = fopen(fname, "wb");
 	if (!fpcap)
 		return errno;
-	fseek(fpcap, 0l, SEEK_SET);
-	n = fwrite(&ghdr, sizeof(ghdr), 1, fpcap);
-	if (n != 1) {
-		int err = EINVAL;
-		if (ferror(fpcap))
-			err = errno;
-		pcap_file_close();
+	fseek(fpcap, (offset = 0l), SEEK_SET);
+
+	err = pcap_file_add_global_hdr();
+	if (err)
 		return err;
-	}
 
 	_dst = *dst;
 	_src = *src;
 
 	return 0;
+}
+
+int pcap_file_open_rd(char *fname)
+{
+	fpcap = fopen(fname, "r+");
+	if (!fpcap)
+		return errno;
+	fseek(fpcap, (offset = 0l), SEEK_SET);
+	return pcap_file_skip_global_hdr();
 }
 
 static uint32_t ip_checksum_step(uint32_t init_sum, void *buf, size_t size)
@@ -171,13 +206,15 @@ static void create_udp_packet(struct udp_hdrs *h, void *data, size_t len)
 	h->udp.check = ip_checksum_final(udp_sum);
 }
 
+struct pcap_headers {
+	struct pcap_record_hdr pcap_rec;
+	struct udp_hdrs udp;
+} __attribute__ ((packed));
+
 int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 			 void *data, size_t len)
 {
-	struct {
-		struct pcap_record_hdr pcap_rec;
-		struct udp_hdrs udp;
-	} __attribute__ ((packed)) hdrs = {
+	struct pcap_headers hdrs = {
 		.pcap_rec = {
 			.ts_sec = tsec,
 			.ts_usec = tusec,
@@ -185,23 +222,79 @@ int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 			.orig_len = sizeof(struct udp_hdrs) + len,
 		},
 	};
-	int err = EINVAL;
 	size_t n;
 
 	create_udp_packet(&hdrs.udp, data, len);
 
 	n = fwrite(&hdrs, sizeof(hdrs), 1, fpcap);
 	if (unlikely(n != 1))
-		goto add_rec_failed;
+		return pcap_err();
+	offset += sizeof(hdrs);
 
 	n = fwrite(data, len, 1, fpcap);
 	if (unlikely(n != 1))
-		goto add_rec_failed;
+		return pcap_err();
+	offset += len;
 
 	return 0;
+}
 
- add_rec_failed:
-	if (ferror(fpcap))
-		err = errno;
-	return err;
+int pcap_file_read_record(void *data, size_t max_len, size_t *rec_len)
+{
+	struct pcap_headers hdrs;
+	size_t n, len;
+
+	n = fread(&hdrs, sizeof(hdrs), 1, fpcap);
+	if (unlikely(n != 1))
+		return pcap_err();
+	offset += sizeof(hdrs);
+
+	len = hdrs.pcap_rec.incl_len - sizeof(struct udp_hdrs);
+	*rec_len = len;
+	if (len > max_len)
+		len = max_len;
+
+	n = fread(data, len, 1, fpcap);
+	if (unlikely(n != 1))
+		return pcap_err();
+	offset += len;
+
+	fseek(fpcap, 0, SEEK_CUR); /* just make sure */
+	return 0;
+}
+
+int pcap_file_replace_last_record(void *data, size_t rec_len)
+{
+	struct pcap_headers hdrs;
+	size_t n;
+	int err;
+
+	offset -= rec_len + sizeof(hdrs);
+	err = fseek(fpcap, offset, SEEK_SET);
+	if (unlikely(err))
+		return err;
+
+	n = fread(&hdrs, sizeof(hdrs), 1, fpcap);
+	if (unlikely(n != 1))
+		return pcap_err();
+
+	memset(&hdrs.udp, 0, sizeof(hdrs.udp));
+	create_udp_packet(&hdrs.udp, data, rec_len);
+
+	/* rewind, then write back */
+	err = fseek(fpcap, offset, SEEK_SET);
+	if (unlikely(err))
+		return err;
+	n = fwrite(&hdrs, sizeof(hdrs), 1, fpcap);
+	if (unlikely(n != 1))
+		return pcap_err();
+	offset += sizeof(hdrs);
+
+	n = fwrite(data, rec_len, 1, fpcap);
+	if (unlikely(n != 1))
+		return pcap_err();
+	offset += rec_len;
+
+	fseek(fpcap, 0, SEEK_CUR); /* just make sure */
+	return 0;
 }

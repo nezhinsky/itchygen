@@ -1,4 +1,4 @@
-/* 
+/*
  * File:   double_hash.h
  * Author: Alexander Nezhinsky
  *
@@ -47,9 +47,13 @@ extern "C" {
 
 /* returns 0 on success,
  * EEXIST when already in hash
- * ENOMEM on bucket overflow 
+ * ENOMEM on bucket overflow
  * ENOSPC when entire table full */
 	int dhash_add(struct dhash_table *dhash, uint32_t val);
+
+/* returns 0 on success,
+ * ENOENT when not in hash */
+	int dhash_find(struct dhash_table *dhash, uint32_t val);
 
 /* returns 0 on success,
  * ENOENT when not in hash */
