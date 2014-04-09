@@ -305,6 +305,10 @@ int main(int argc, char **argv)
 				}
 			}
 
+			if (!itchyparse.subscription.fname) {
+				itchyparse.unsubscr_orders ++;
+				break;
+			}
 			name32 = name4_to_u32(itch_pkt.msg.order.stock);
 			err = dhash_find(&itchyparse.subscr_dhash, name32);
 			if (!err) /* this order is for a subscribed symbol */
