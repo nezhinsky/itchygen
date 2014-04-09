@@ -46,6 +46,7 @@
 #include "itchygen.h"
 #include "pcap.h"
 #include "double_hash.h"
+#include "str_args.h"
 
 struct itchyparse_info {
 	char *pcap_fname;
@@ -131,8 +132,8 @@ int main(int argc, char **argv)
 	unsigned long long cur_seq_num = 0;
 	unsigned long long seq_errors = 0;
 	unsigned long long rec_seq_num, first_seq_num, last_seq_num;
-	unsigned int illegal_types = 0;
-	unsigned long long new_seq_num;
+	unsigned long long new_seq_num = 0;
+	unsigned int illegal_types = 0;	
 	int first = 1, edit_recs = 0;
 	int ch, longindex, err;
 
@@ -167,18 +168,18 @@ int main(int argc, char **argv)
 		case 'x':
 			err = str_to_int_ge(optarg, itchyparse.expect_first_seq, 0);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			break;
 		case '1':
 			err = str_to_int_ge(optarg, itchyparse.edit_first_seq, 0);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			edit_recs = 1;
 			break;
 		case 't':
 			err = str_to_int_ge(optarg, itchyparse.edit_start_sec, 0);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			break;
 		case '0':
 			itchyparse.no_hash_del = 1;

@@ -184,17 +184,6 @@ void print_stats(struct itchygen_stat *s, struct dhash_table *dhash)
 	printf("\n\n");
 }
 
-void bad_optarg(int err, int ch, char *optarg)
-{
-	if (err == ERANGE)
-		fprintf(stderr,
-			"-%c argument value '%s' out of range\n", ch, optarg);
-	else
-		fprintf(stderr, "-%c argument value '%s' invalid\n", ch,
-			optarg);
-	usage(err, NULL);
-}
-
 static struct rand_interval symbol_len_rand_int[2];	/* len: 3, 4 */
 
 void symbol_name_init(struct trade_symbol *symbol, const char *src_name)

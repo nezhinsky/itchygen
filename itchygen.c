@@ -50,6 +50,7 @@
 #include "ulist.h"
 #include "pcap.h"
 #include "double_hash.h"
+#include "str_args.h"
 
 
 static char program_name[] = "itchygen";
@@ -898,7 +899,7 @@ int main(int argc, char **argv)
 
 			err = str_to_int_gt(optarg, orders_rate, 0);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			orders_rate *= mult;
 			num_rate_args++;
 			break;
@@ -907,7 +908,7 @@ int main(int argc, char **argv)
 				usage(EINVAL, "-t supplied twice");
 			err = str_to_int_gt(optarg, run_time, 0);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			num_rate_args++;
 			break;
 		case 'n':	/* total number of orders */
@@ -924,21 +925,21 @@ int main(int argc, char **argv)
 
 			err = str_to_int_gt(optarg, num_orders, 0);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			num_orders *= mult;
 			num_rate_args++;
 			break;
 		case 'u':	/* mean time to next update message, msec */
 			err = str_to_int_gt(optarg, itchygen.time2update, 0);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			break;
 		case 'E':	/* probability of execution */
 			if (prob_exec >= 0)
 				usage(E2BIG, "error: -E supplied twice");
 			err = str_to_int_range(optarg, prob_exec, 0, 100, 10);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			num_prob_args++;
 			break;
 		case 'C':	/* probability of cancel */
@@ -946,7 +947,7 @@ int main(int argc, char **argv)
 				usage(E2BIG, "error: -C supplied twice");
 			err = str_to_int_range(optarg, prob_cancel, 0, 100, 10);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			num_prob_args++;
 			break;
 		case 'R':	/* probability of replace */
@@ -955,37 +956,37 @@ int main(int argc, char **argv)
 			err =
 			    str_to_int_range(optarg, prob_replace, 0, 100, 10);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			num_prob_args++;
 			break;
 		case 'S':	/* random seed */
 			err = str_to_int_gt(optarg, itchygen.rand_seed, 0);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			use_seed = 1;
 			break;
 		case 'm':
 			err = str_to_mac(optarg, mac);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			ep_addr_set_mac(&itchygen.dst, mac);
 			break;
 		case 'M':
 			err = str_to_mac(optarg, mac);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			ep_addr_set_mac(&itchygen.src, mac);
 			break;
 		case 'p':	/* dst port */
 			err = str_to_int_range(optarg, port, 1024, 65535, 10);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			ep_addr_set_port(&itchygen.dst, port);
 			break;
 		case 'P':	/* src port */
 			err = str_to_int_range(optarg, port, 1024, 65535, 10);
 			if (err)
-				bad_optarg(err, ch, optarg);
+				usage(bad_optarg(err, ch, optarg), NULL);
 			ep_addr_set_port(&itchygen.src, port);
 			break;
 		case 'i':	/* dst ip addr */

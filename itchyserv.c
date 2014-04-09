@@ -1,6 +1,6 @@
 /*
  * File:   itchyserv.c
- * 
+ *
  * Copyright (c) 2014, Alexander Nezhinsky (nezhinsky@gmail.com)
  * All rights reserved.
  *
@@ -32,18 +32,16 @@
 #include <endian.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #define __STDC_FORMAT_MACROS	/* for PRIu64 etc. */
 #include <inttypes.h>
+#include <getopt.h>
 
 #include "itch_proto.h"
+#include "itchygen.h"
+#include "str_args.h"
 
 static char *prog_name;
-
-static void usage(int err)
-{
-	printf("usage: %s <port> [silent]\n", prog_name);
-	exit(err);
-}
 
 static unsigned int time_sec;
 
@@ -85,38 +83,126 @@ static void print_event_replace(struct itch_msg_order_replace *evt)
 	       be32toh(evt->shares), be32toh(evt->price));
 }
 
+static char program_name[] = "itchyparse";
+
+void version(void)
+{
+	printf("%s\n", ITCHYGEN_VER_STR);
+	exit(0);
+}
+
+void usage(int status, char *msg)
+{
+	if (msg)
+		fprintf(stderr, "%s\n", msg);
+	if (status)
+		exit(status);
+
+	printf("simple ITCH UDP server, version %s\n\n"
+	       "Usage: %s [OPTION]\n"
+	       "-a, --addr          listening ip addr (default: ANY)\n"
+	       "-p, --port          listening port (1024..65535)\n"
+	       "-q, --quiet         quiet mode, only print error msgs\n"
+	       "-d, --debug         produce debug information\n"
+	       "-v, --verbose       produce verbose output\n"
+	       "-V, --version       print version and exit\n"
+	       "-h, --help          display this help and exit\n",
+	       ITCHYGEN_VER_STR, program_name);
+	exit(0);
+}
+
+static struct option const long_options[] = {
+	{"addr", required_argument, 0, 'a'},
+	{"port", required_argument, 0, 'p'},
+	{"quiet", required_argument, 0, 'q'},
+	{"debug", no_argument, 0, 'd'},
+	{"verbose", no_argument, 0, 'v'},
+	{"version", no_argument, 0, 'V'},
+	{"help", no_argument, 0, 'h'},
+	{0, 0, 0, 0},
+};
+
+static char *short_options = "a:p:q:dvVh";
+
+
 int main(int argc, char **argv)
 {
+	int ch, longindex, err;
 	int sockfd, n;
 	struct sockaddr_in servaddr, cliaddr;
 	socklen_t len;
-	unsigned short port;
+	unsigned short port = 0;
 	uint64_t seq_num = 0;
 	struct itch_packet *pkt;
-	int silent_mode = 0;
+	int silent_mode = 0, debug_mode = 0, verbose_mode = 0;
 	char msg[1000];
 
 	prog_name = basename(argv[0]);
 
-	if (argc != 2 && argc != 3)
-		usage(EINVAL);
-
-	port = atoi(argv[1]);
-	if (!port) {
-		printf("port arg invalid: %s\n", argv[1]);
-		usage(EINVAL);
-	}
-
-	if (argc == 3 && !strncmp(argv[2], "silent", 6)) {
-		silent_mode = 1;
-		printf("silent mode on\n");
-	}
-
-	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-
 	memset(&servaddr, 0, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
-	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	servaddr.sin_addr.s_addr = htonl(INADDR_ANY); /* default */
+
+	opterr = 0;		/* global getopt variable */
+	for (;;) {
+		ch = getopt_long(argc, argv, short_options,
+				 long_options, &longindex);
+		if (ch < 0)
+			break;
+
+		switch (ch) {
+		case 'a':
+			if (!inet_aton(optarg, &servaddr.sin_addr)) {
+				printf("invalid server address: [%s]\n", optarg);
+				usage(EINVAL, NULL);
+			}
+			break;
+		case 'p':
+			err = str_to_int_range(optarg, port, 1024, 65535, 10);
+			if (err)
+				usage(bad_optarg(err, ch, optarg), NULL);
+			break;
+		case 'q':
+			silent_mode = 1;
+			break;
+		case 'd':
+			debug_mode = 1;
+			verbose_mode = 1;
+			break;
+		case 'v':
+			verbose_mode = 1;
+			break;
+		case 'V':
+			version();
+			break;
+		case 'h':
+			usage(0, NULL);
+			break;
+		default:
+			if (optind == 1)
+				optind++;
+			printf("don't understand: %s\n", argv[optind - 1]);
+			usage(EINVAL, "error: unsupported arguments");
+			break;
+		}
+	}
+
+	if (!port)
+		usage(EINVAL, "error: port argument not supplied");
+
+	printf("addr:%s port:%d ", inet_ntoa(servaddr.sin_addr), (int)port);
+	printf("quiet:%s debug:%s verbose:%s\n",
+		silent_mode ? "yes" : "no",
+		debug_mode ? "yes" : "no",
+		verbose_mode ? "yes" : "no");
+
+	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (socket < 0) {
+		printf("failed to open socket, %m\n");
+		exit(errno);
+	}
+
+	/* other fields set previously */
 	servaddr.sin_port = htons(port);
 	bind(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
 
