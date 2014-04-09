@@ -239,7 +239,8 @@ int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 	return 0;
 }
 
-int pcap_file_read_record(void *data, size_t max_len, size_t *rec_len)
+int pcap_file_read_record(void *data, size_t max_len, size_t *rec_len,
+	struct endpoint_addr *dst_ep, struct endpoint_addr *src_ep)
 {
 	struct pcap_headers hdrs;
 	size_t n, len;
@@ -248,6 +249,17 @@ int pcap_file_read_record(void *data, size_t max_len, size_t *rec_len)
 	if (unlikely(n != 1))
 		return pcap_err();
 	offset += sizeof(hdrs);
+
+	if (dst_ep) {
+		ep_addr_set_mac(dst_ep, hdrs.udp.ether.ether_dhost);
+		ep_addr_set_ip(dst_ep, hdrs.udp.ip.daddr);
+		ep_addr_set_port(dst_ep, hdrs.udp.udp.dest);
+	}
+	if (src_ep) {
+		ep_addr_set_mac(src_ep, hdrs.udp.ether.ether_shost);
+		ep_addr_set_ip(src_ep, hdrs.udp.ip.saddr);
+		ep_addr_set_port(src_ep, hdrs.udp.udp.source);
+	}
 
 	len = hdrs.pcap_rec.incl_len - sizeof(struct udp_hdrs);
 	*rec_len = len;

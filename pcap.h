@@ -78,7 +78,8 @@ int pcap_file_open(char *fname,
 int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 			 void *data, size_t len);
 int pcap_file_open_rd(char *fname);
-int pcap_file_read_record(void *data, size_t max_len, size_t *rec_len);
+int pcap_file_read_record(void *data, size_t max_len, size_t *rec_len,
+	struct endpoint_addr *dst_ep, struct endpoint_addr *src_ep);
 int pcap_file_replace_last_record(void *data, size_t rec_len);
 void pcap_file_close(void);
 

@@ -126,6 +126,16 @@ static uint32_t symbol_name_to_u32(struct trade_symbol *symbol)
 	return name4_to_u32(symbol->name);
 }
 
+static void ep_printf(struct endpoint_addr *ep)
+{
+	char ip_str[32];
+	printf("[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d",
+		ep->mac[0], ep->mac[1], ep->mac[2],
+		ep->mac[3], ep->mac[4], ep->mac[5],
+		inet_ntop(AF_INET, &ep->ip_addr, ip_str, 32),
+		(uint32_t) ep->port);
+}
+
 int main(int argc, char **argv)
 {
 	struct itchyparse_info itchyparse;
@@ -135,8 +145,10 @@ int main(int argc, char **argv)
 	unsigned long long first_seq_num = 0;
 	unsigned long long last_seq_num = 0;
 	unsigned long long new_seq_num = 0;
-	unsigned int illegal_types = 0;	
+	unsigned int illegal_types = 0;
 	int first = 1, edit_recs = 0;
+	struct endpoint_addr dst_ep, src_ep;
+	struct endpoint_addr first_dst_ep, first_src_ep;
 	int ch, longindex, err;
 
 	if (argc < 2)
@@ -258,9 +270,11 @@ int main(int argc, char **argv)
 		struct itch_packet itch_pkt;
 		size_t pkt_len;
 		uint32_t refn32, name32;
+		int src_changed, dst_changed;
 		int err;
 
-		err = pcap_file_read_record(&itch_pkt, sizeof(itch_pkt), &pkt_len);
+		err = pcap_file_read_record(&itch_pkt, sizeof(itch_pkt),
+					    &pkt_len, &dst_ep, &src_ep);
 		if (unlikely(err)) {
 			if (err != ENOENT) {
 				printf("failed to read from pcap file, %m\n");
@@ -272,6 +286,14 @@ int main(int argc, char **argv)
 		rec_seq_num = be64toh(itch_pkt.mold.seq_num);
 		if (unlikely(first)) {
 			first = 0;
+
+			memcpy(&first_src_ep, &src_ep, sizeof(src_ep));
+			ep_printf(&first_src_ep);
+			printf(" -> ");
+			memcpy(&first_dst_ep, &dst_ep, sizeof(dst_ep));
+			ep_printf(&first_dst_ep);
+			printf("\n");
+
 			first_seq_num = rec_seq_num;
 			cur_seq_num = itchyparse.expect_first_seq;
 			if (edit_recs) {
@@ -281,6 +303,22 @@ int main(int argc, char **argv)
 					edit_recs = 0;
 			}
 		}
+
+		src_changed = 0;
+		dst_changed = 0;
+		if (memcmp(&first_src_ep, &src_ep, sizeof(src_ep))) {
+			printf("new src: ");
+			ep_printf(&src_ep);
+			src_changed = 1;
+		}
+		if (memcmp(&first_dst_ep, &dst_ep, sizeof(dst_ep))) {
+			printf("%snew dst: ", src_changed ? " -> " : "");
+			ep_printf(&dst_ep);
+			dst_changed = 1;
+		}
+		if (dst_changed || src_changed)
+			printf("\n");
+
 		if (rec_seq_num != cur_seq_num) {
 			printf("seq.err. expected:%llu recvd:%llu\n",
 				cur_seq_num, rec_seq_num);
