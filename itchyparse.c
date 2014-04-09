@@ -133,7 +133,8 @@ int main(int argc, char **argv)
 	unsigned long long rec_seq_num, first_seq_num, last_seq_num;
 	unsigned int illegal_types = 0;
 	unsigned long long new_seq_num;
-	int ch, longindex, err, first = 1, edit_recs = 0;
+	int first = 1, edit_recs = 0;
+	int ch, longindex, err;
 
 	if (argc < 2)
 		usage(0, NULL);
@@ -172,6 +173,7 @@ int main(int argc, char **argv)
 			err = str_to_int_ge(optarg, itchyparse.edit_first_seq, 0);
 			if (err)
 				bad_optarg(err, ch, optarg);
+			edit_recs = 1;
 			break;
 		case 't':
 			err = str_to_int_ge(optarg, itchyparse.edit_start_sec, 0);
@@ -269,9 +271,11 @@ int main(int argc, char **argv)
 			first = 0;
 			first_seq_num = rec_seq_num;
 			cur_seq_num = itchyparse.expect_first_seq;
-			if (itchyparse.edit_first_seq != first_seq_num) {
-				new_seq_num = itchyparse.edit_first_seq;
-				edit_recs = 1;
+			if (edit_recs) {
+				if (itchyparse.edit_first_seq != first_seq_num)
+					new_seq_num = itchyparse.edit_first_seq;
+				else /* no need to edit */
+					edit_recs = 0;
 			}
 		}
 		if (rec_seq_num != cur_seq_num) {
