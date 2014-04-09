@@ -17,7 +17,7 @@ extern "C" {
 #define likely(x)	__builtin_expect(!!(x), 1)
 #define unlikely(x)	__builtin_expect((x), 0)
 
-#define ITCHYGEN_VER_STR	"0.3.1"
+#define ITCHYGEN_VER_STR	"0.3.2"
 
 void version(void);
 void usage(int status, char *msg);
