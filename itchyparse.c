@@ -131,7 +131,9 @@ int main(int argc, char **argv)
 	struct itchyparse_info itchyparse;
 	unsigned long long cur_seq_num = 0;
 	unsigned long long seq_errors = 0;
-	unsigned long long rec_seq_num, first_seq_num, last_seq_num;
+	unsigned long long rec_seq_num = 0;
+	unsigned long long first_seq_num = 0;
+	unsigned long long last_seq_num = 0;
 	unsigned long long new_seq_num = 0;
 	unsigned int illegal_types = 0;	
 	int first = 1, edit_recs = 0;
