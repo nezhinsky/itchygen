@@ -48,6 +48,7 @@ struct itchygen_stat {
 	unsigned long long execs;
 	unsigned long long cancels;
 	unsigned long long replaces;
+	unsigned long long timestamps;
 	unsigned int bucket_min;
 	unsigned int bucket_max;
 	unsigned int bucket_overflows;

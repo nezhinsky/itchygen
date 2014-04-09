@@ -338,6 +338,7 @@ int main(int argc, char **argv)
 			itchyparse.stat.replaces ++;
 			break;
 		case MSG_TYPE_TIMESTAMP:
+			itchyparse.stat.timestamps ++;
 			break;
 		default:
 			illegal_types ++;

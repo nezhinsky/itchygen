@@ -173,8 +173,8 @@ void print_stats(struct itchygen_stat *s, struct dhash_table *dhash)
 
 	dhash_stat(dhash, &ds);
 	printf("\nstatistics:\n"
-	       "\torders:%llu exec:%llu cancel:%llu replace:%llu\n",
-	       s->orders, s->execs, s->cancels, s->replaces);
+	       "\ttimestamps:%llu orders:%llu exec:%llu cancel:%llu replace:%llu\n",
+	       s->timestamps, s->orders, s->execs, s->cancels, s->replaces);
 	printf
 	    ("\thash table entries:%u, bucket all-times-max:%u, overflows:%u\n",
 	     ds.num_entries, ds.bucket_abs_max, s->bucket_overflows);

@@ -665,6 +665,7 @@ static void generate_single_timestamp(struct itchygen_info *itchygen,
 	set_event_time(event, (double)time_sec);
 	event->timestamp.seconds = time_sec;
 
+	itchygen->stat.timestamps++;
 	time_list_insert(itchygen, event);
 }
 
