@@ -102,6 +102,7 @@ void usage(int status, char *msg)
 	       "Usage: %s [OPTION]\n"
 	       "-a, --addr          listening ip addr (default: ANY)\n"
 	       "-p, --port          listening port (1024..65535)\n"
+	       "-s, --strict        strict mode, exit on seq.num mismatch\n"
 	       "-q, --quiet         quiet mode, only print error msgs\n"
 	       "-d, --debug         produce debug information\n"
 	       "-v, --verbose       produce verbose output\n"
@@ -114,7 +115,8 @@ void usage(int status, char *msg)
 static struct option const long_options[] = {
 	{"addr", required_argument, 0, 'a'},
 	{"port", required_argument, 0, 'p'},
-	{"quiet", required_argument, 0, 'q'},
+	{"strict", no_argument, 0, 's'},
+	{"quiet", no_argument, 0, 'q'},
 	{"debug", no_argument, 0, 'd'},
 	{"verbose", no_argument, 0, 'v'},
 	{"version", no_argument, 0, 'V'},
@@ -122,7 +124,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "a:p:q:dvVh";
+static char *short_options = "a:p:sqdvVh";
 
 
 int main(int argc, char **argv)
@@ -132,9 +134,10 @@ int main(int argc, char **argv)
 	struct sockaddr_in servaddr, cliaddr;
 	socklen_t len;
 	unsigned short port = 0;
-	uint64_t seq_num = 0;
+	uint64_t seq_num = 0, rec_seq_num;
 	struct itch_packet *pkt;
-	int silent_mode = 0, debug_mode = 0, verbose_mode = 0;
+	int quiet_mode = 0, strict_mode = 0;
+	int debug_mode = 0, verbose_mode = 0;
 	char msg[1000];
 
 	prog_name = basename(argv[0]);
@@ -162,8 +165,11 @@ int main(int argc, char **argv)
 			if (err)
 				usage(bad_optarg(err, ch, optarg), NULL);
 			break;
+		case 's':
+			strict_mode = 1;
+			break;
 		case 'q':
-			silent_mode = 1;
+			quiet_mode = 1;
 			break;
 		case 'd':
 			debug_mode = 1;
@@ -191,8 +197,9 @@ int main(int argc, char **argv)
 		usage(EINVAL, "error: port argument not supplied");
 
 	printf("addr:%s port:%d ", inet_ntoa(servaddr.sin_addr), (int)port);
-	printf("quiet:%s debug:%s verbose:%s\n",
-		silent_mode ? "yes" : "no",
+	printf("strict:%s quiet:%s debug:%s verbose:%s\n",
+		strict_mode ? "yes" : "no",
+		quiet_mode ? "yes" : "no",
 		debug_mode ? "yes" : "no",
 		verbose_mode ? "yes" : "no");
 
@@ -219,13 +226,17 @@ int main(int argc, char **argv)
 			exit(EIO);
 		}
 
-		if (be64toh(pkt->mold.seq_num) != seq_num) {
+		rec_seq_num = be64toh(pkt->mold.seq_num);
+		if (rec_seq_num != seq_num) {
 			printf("error: mold_udp64 seq num: %" PRIu64
 			       " received, " "expected: %" PRIu64 "\n",
-			       be64toh(pkt->mold.seq_num), seq_num);
-			exit(EIO);
+			       rec_seq_num, seq_num);
+			if (!strict_mode)
+				seq_num = rec_seq_num;
+			else
+				exit(EIO);
 		}
-		if (!silent_mode)
+		if (!quiet_mode)
 			printf("[%" PRIu64 "] ", seq_num);
 		seq_num++;
 
@@ -235,7 +246,7 @@ int main(int argc, char **argv)
 			exit(EIO);
 		}
 
-		if (silent_mode) {
+		if (quiet_mode) {
 			switch (pkt->msg.common.msg_type) {
 			case MSG_TYPE_ADD_ORDER_NO_MPID:
 			case MSG_TYPE_ORDER_EXECUTED:
