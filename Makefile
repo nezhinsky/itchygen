@@ -1,7 +1,9 @@
 # itchygen makefile
 
 # files to compile
-COMMON_OBJS += itch_common.o rand_util.o pcap.o double_hash.o crc.o ulist.o
+COMMON_OBJS += itch_common.o rand_util.o pcap.o \
+		double_hash.o crc.o \
+		usync_queue.o ulist.o
 ITCHYGEN_OBJS += itchygen.o $(COMMON_OBJS)
 ITCHYPARSE_OBJS += itchyparse.o $(COMMON_OBJS)
 ITCHYSERV_OBJS += itchyserv.o

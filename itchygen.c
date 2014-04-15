@@ -42,12 +42,12 @@
 #include <getopt.h>
 #include <time.h>
 #include <pthread.h>
-#include <sched.h>
 
 #include "itch_proto.h"
 #include "itchygen.h"
 #include "rand_util.h"
 #include "ulist.h"
+#include "usync_queue.h"
 #include "pcap.h"
 #include "double_hash.h"
 #include "str_args.h"
@@ -60,13 +60,6 @@ struct time_list {
 	unsigned int time_units;
 	unsigned int first_unit;
 	unsigned int last_unit;
-};
-
-struct ev_queue {
-	pthread_mutex_t ev_list_mutex;
-	pthread_cond_t ev_list_cond;
-	struct ulist_head ev_list;
-	int active;
 };
 
 struct itchygen_info {
@@ -98,7 +91,7 @@ struct itchygen_info {
 	struct itchygen_stat stat;
 	double cur_time;
 	struct time_list time_list;
-	struct ev_queue ev_queue;
+	struct usync_queue ev_queue;
 	struct rand_interval order_type_prob_int[MODIFY_ORDER_NUM_TYPES];
 };
 
@@ -352,48 +345,6 @@ static void order_event_pcap_msg(struct itchygen_info *itchygen,
 	}
 }
 
-static void ev_queue_init(struct ev_queue *q)
-{
-	pthread_mutex_init(&q->ev_list_mutex, NULL);
-	pthread_cond_init(&q->ev_list_cond, NULL);
-	ulist_head_init(&q->ev_list);
-	q->active = 1;
-}
-
-static void ev_queue_push(struct ev_queue *q, struct order_event *event)
-{
-	pthread_mutex_lock(&q->ev_list_mutex);
-	ulist_add_tail(&q->ev_list, &event->time_node);
-	pthread_cond_signal(&q->ev_list_cond);
-	pthread_mutex_unlock(&q->ev_list_mutex);
-}
-
-static struct order_event *ev_queue_pop(struct ev_queue *q)
-{
-	struct order_event *event;
-
-	pthread_mutex_lock(&q->ev_list_mutex);
-	while (ulist_empty(&q->ev_list) && q->active)
-		pthread_cond_wait(&q->ev_list_cond, &q->ev_list_mutex);
-	event = ulist_pop(&q->ev_list, struct order_event, time_node);
-	pthread_mutex_unlock(&q->ev_list_mutex);
-
-	return event;
-}
-
-static void ev_queue_shutdown(struct ev_queue *q)
-{
-	pthread_mutex_lock(&q->ev_list_mutex);
-	while (!ulist_empty(&q->ev_list)) {
-		pthread_mutex_unlock(&q->ev_list_mutex);
-		sched_yield();
-		pthread_mutex_lock(&q->ev_list_mutex);
-	}
-	q->active = 0;
-	pthread_cond_signal(&q->ev_list_cond);
-	pthread_mutex_unlock(&q->ev_list_mutex);
-}
-
 void order_event_submit(struct itchygen_info *itchygen,
 			struct order_event *event)
 {
@@ -407,7 +358,7 @@ void order_event_submit(struct itchygen_info *itchygen,
 				    (uint32_t) event->ref_num);
 		assert(!err);
 	}
-	ev_queue_push(&itchygen->ev_queue, event);
+	usync_queue_accum(&itchygen->ev_queue, &event->time_node);
 }
 
 #define TUNIT_SEC_SHIFT  9
@@ -443,6 +394,7 @@ static void submit_entire_list(struct itchygen_info *itchygen,
 			       event->t_sec, event->t_nsec);
 		order_event_submit(itchygen, event);
 	}
+	usync_queue_push_accum(&itchygen->ev_queue);
 }
 
 static void submit_list_up_to_event(struct itchygen_info *itchygen,
@@ -465,6 +417,7 @@ static void submit_list_up_to_event(struct itchygen_info *itchygen,
 		printf("timelist: direct submit %u.%09u\n",
 		       add_event->t_sec, add_event->t_nsec);
 	order_event_submit(itchygen, add_event);
+	usync_queue_push_accum(&itchygen->ev_queue);
 }
 
 static void time_list_submit(struct itchygen_info *itchygen,
@@ -735,7 +688,7 @@ static void *event_generator_thrd(void *arg)
 	/* submit entire list */
 	time_list_submit(itchygen, NULL);
 	printf("waiting until ev list empty\n");
-	ev_queue_shutdown(&itchygen->ev_queue);
+	usync_queue_shutdown(&itchygen->ev_queue);
 	itchygen->active = 0;
 	printf("generator exits...\n");
 	pthread_exit(NULL);
@@ -744,20 +697,23 @@ static void *event_generator_thrd(void *arg)
 static void *pcap_writer_thrd(void *arg)
 {
 	struct itchygen_info *itchygen = arg;
-	struct order_event *event;
+	struct ulist_head wr_ev_list = ULIST_HEAD_INIT(wr_ev_list);
+	struct order_event *event, *next;
 
 	while (itchygen->active) {
-		event = ev_queue_pop(&itchygen->ev_queue);
-		if (unlikely(!event))
+		usync_queue_pull_list(&itchygen->ev_queue, &wr_ev_list);
+		if (unlikely(!itchygen->ev_queue.active))
 			break;
-		order_event_pcap_msg(itchygen, event);
-		if (!event->remain_shares)
-			order_event_free_back(event);
+		ulist_for_each_safe(&wr_ev_list, event, next, time_node) {
+			ulist_del_from(&wr_ev_list, &event->time_node);
+			order_event_pcap_msg(itchygen, event);
+			if (!event->remain_shares)
+				order_event_free_back(event);
+		}
 	}
 	printf("pcap writer exits...\n");
 	pthread_exit(NULL);
 }
-
 
 static int str_to_mac(char *str, uint8_t * mac)
 {
@@ -1138,7 +1094,7 @@ int main(int argc, char **argv)
 			   MODIFY_ORDER_NUM_TYPES);
 
 	time_list_init(&itchygen);
-	ev_queue_init(&itchygen.ev_queue);
+	usync_queue_init(&itchygen.ev_queue);
 
 	err = dhash_init(&itchygen.dhash, CRC_WIDTH,
 			 itchygen.poly, itchygen.num_poly);
