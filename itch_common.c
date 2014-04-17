@@ -175,9 +175,8 @@ void print_stats(struct itchygen_stat *s, struct dhash_table *dhash)
 	printf("\nstatistics:\n"
 	       "\ttimestamps:%llu orders:%llu (subscribed:%llu) exec:%llu cancel:%llu replace:%llu\n",
 	       s->timestamps, s->orders, s->subscr_orders, s->execs, s->cancels, s->replaces);
-	printf
-	    ("\thash table entries:%u, bucket all-times-max:%u, overflows:%u\n",
-	     ds.num_entries, ds.bucket_abs_max, s->bucket_overflows);
+	printf("\thash table entries:%u, bucket all-times-max:%u, overflows:%u\n",
+	       ds.num_entries, ds.bucket_abs_max, s->bucket_overflows);
 	printf("\tbucket ");
 	for (i = 0; i <= NUM_BUCKET_VALS; i++)
 		printf("num[%d]:%d ", i, ds.bucket_num[i]);

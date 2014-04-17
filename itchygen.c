@@ -104,7 +104,7 @@ static void print_params(struct itchygen_info *itchygen)
 
 	strftime(time_buf, sizeof(time_buf), "%F %T", localtime(&t));
 
-	printf("\nitchygen ver %s started at %s with arguments:\n"
+	printf("\nitchygen ver %s started at %s\narguments:\n"
 	       "\tsymbols file: %s, lines: %d, used: %d\n"
 	       "\trun time: %d sec, rate: %ld orders/sec, orders: %ld, "
 	       "mean update time: %d msec\n"
@@ -112,7 +112,7 @@ static void print_params(struct itchygen_info *itchygen)
 	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
 	       "\tdbg: %s, verbose: %s, ref_nums: %s (start: %llu), seed: %d\n"
-	       "\toutput file: %s\n\n",
+	       "\toutput file: %s\n",
 	       ITCHYGEN_VER_STR, time_buf,
 	       itchygen->all_sym.fname, itchygen->all_sym.num_lines,
 	       itchygen->all_sym.num_symbols,
@@ -699,10 +699,12 @@ static void *event_generator_thrd(void *arg)
 	}
 	/* submit entire list */
 	time_list_submit(itchygen, NULL);
-	printf("waiting until ev list empty\n");
+	if (itchygen->debug_mode)
+		printf("waiting until ev list empty\n");
 	usync_queue_shutdown(&itchygen->ev_queue);
 	itchygen->active = 0;
-	printf("generator exits...\n");
+	if (itchygen->debug_mode)
+		printf("generator exits...\n");
 	pthread_exit(NULL);
 }
 
@@ -723,7 +725,8 @@ static void *pcap_writer_thrd(void *arg)
 				order_event_free_back(event);
 		}
 	}
-	printf("pcap writer exits...\n");
+	if (itchygen->debug_mode)
+		printf("pcap writer exits...\n");
 	pthread_exit(NULL);
 }
 
