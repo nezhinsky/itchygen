@@ -272,3 +272,81 @@ int read_symbol_file(struct symbols_file * sym, int print_warn)
 	fclose(sym->fh);
 	return 0;
 }
+
+uint32_t name4_to_u32(char *name)
+{
+	uint32_t int_val;
+
+	int_val = (uint32_t)name[0];
+	int_val |= ((uint32_t)name[1]) << 8;
+	int_val |= ((uint32_t)name[2]) << 16;
+	int_val |= ((uint32_t)name[3]) << 24;
+
+	return int_val;
+}
+
+uint32_t symbol_name_to_u32(struct trade_symbol *symbol)
+{
+	return name4_to_u32(symbol->name);
+}
+
+void init_symbol_file_hash(struct symbols_file * sym)
+{
+	uint32_t poly[2];
+	uint32_t name32, i;
+	int err;
+
+	get_default_poly(&sym->poly, 2);
+	err = dhash_init(&sym->dhash, CRC_WIDTH, poly, 2);
+	assert(!err);
+	dhash_reset(&sym->dhash);
+
+	for (i = 0; i < sym->num_symbols; i++) {
+		name32 = name4_to_u32(sym->symbol[i].name);
+		dhash_add(&sym->dhash, name32);
+	}
+}
+
+int is_in_symbol_file(struct symbols_file * sym, char *name)
+{
+	uint32_t name32 = name4_to_u32(name);
+	int err;
+
+	err = dhash_find(&sym->dhash, name32);
+	if (!err) /* found in hash */
+		return 1;
+	else {
+		assert(err == ENOENT);
+		return 0;
+	}
+}
+
+void cleanup_symbol_file_hash(struct symbols_file * sym)
+{
+	dhash_cleanup(&sym->dhash);
+}
+
+void exclude_symbol_file(struct symbols_file * from_sym,
+	struct symbols_file * exclude_sym,
+	int print_warn)
+{
+	size_t i;
+
+	init_symbol_file_hash(exclude_sym);
+
+	for (i = 0; i < from_sym->num_symbols;) {
+		if (!is_in_symbol_file(exclude_sym, from_sym->symbol[i].name)) {
+			i++;
+			continue;
+		}
+		/* exclude this one */
+		from_sym->num_symbols --;
+		if (i < from_sym->num_symbols) {
+			memcpy(&from_sym->symbol[i],
+				&from_sym->symbol[from_sym->num_symbols],
+				sizeof(from_sym->symbol[i]));
+		}
+	}
+
+	cleanup_symbol_file_hash(exclude_sym);
+}

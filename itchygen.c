@@ -64,6 +64,7 @@ struct time_list {
 
 struct itchygen_info {
 	struct symbols_file all_sym;
+	struct symbols_file list_sym;
 
 	unsigned int run_time;
 	unsigned long orders_rate;
@@ -93,6 +94,7 @@ struct itchygen_info {
 	struct time_list time_list;
 	struct usync_queue ev_queue;
 	struct rand_interval order_type_prob_int[MODIFY_ORDER_NUM_TYPES];
+	struct rand_interval subscribed_prob_int[2];
 };
 
 static void print_params(struct itchygen_info *itchygen)
@@ -520,6 +522,7 @@ static struct order_event *generate_new_order(struct itchygen_info *itchygen,
 					      double order_time)
 {
 	struct order_event *order;
+	struct symbols_file *sym_file;
 	int symbol_index;
 
 	order = malloc(sizeof(*order));
@@ -528,8 +531,15 @@ static struct order_event *generate_new_order(struct itchygen_info *itchygen,
 
 	order->type = ORDER_ADD;
 	order->prev_event = NULL;
-	symbol_index = rand_int_range(0, itchygen->all_sym.num_symbols - 1);
-	order->symbol = &itchygen->all_sym.symbol[symbol_index];
+
+	if (itchygen->list_sym.fname &&
+	    rand_index(itchygen->subscribed_prob_int, 2) == 0)
+		sym_file = &itchygen->list_sym;
+	else
+		sym_file = &itchygen->all_sym;
+	symbol_index = rand_int_range(0, sym_file->num_symbols - 1);
+	order->symbol = &sym_file->symbol[symbol_index];
+
 	set_event_time(order, order_time);
 	assert(order->unit_id < itchygen->time_list.time_units);
 	order->ref_num = generate_ref_num(itchygen);
@@ -753,6 +763,8 @@ void usage(int status, char *msg)
 	       "-r, --orders-rate   orders [r]ate (1/sec), [kKmM] supported)\n"
 	       "-n, --orders-num    total orders [n]umber, [kKmM] supported)\n"
 	       "* * * missing -t/-r/-n inferred by: t * r = n\n\n"
+	       "-L, --list-file     file with list of subscription symbols\n"
+	       "-l, --list-ratio    ratio of subscribed symbols\n\n"
 	       "-u, --time2update   mean time to order's [u]pdate (msec)\n"
 	       "-E, --prob-exec     probability of execution (0%%-100%%)\n"
 	       "-C, --prob-cancel   probability of cancel (0%%-100%%)\n"
@@ -783,6 +795,8 @@ static struct option const long_options[] = {
 	{"orders-rate", required_argument, 0, 'r'},
 	{"orders-num", required_argument, 0, 'n'},
 	{"time2update", required_argument, 0, 'u'},
+	{"list-file", required_argument, 0, 'L'},
+	{"list-ratio", required_argument, 0, 'l'},
 	{"prob-exec", required_argument, 0, 'E'},
 	{"prob-cancel", required_argument, 0, 'C'},
 	{"prob-replace", required_argument, 0, 'R'},
@@ -803,7 +817,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "s:t:r:n:u:E:C:R:S:m:M:p:i:P:I:f:Q0dvVh";
+static char *short_options = "s:t:r:n:L:l:u:E:C:R:S:m:M:p:i:P:I:f:Q0dvVh";
 
 int main(int argc, char **argv)
 {
@@ -817,6 +831,7 @@ int main(int argc, char **argv)
 	int prob_exec = -1;
 	int prob_cancel = -1;
 	int prob_replace = -1;
+	int list_ratio = -1;
 	int use_seed = 0;
 	int mult, suffix;
 	pthread_t thread1, thread2;
@@ -841,6 +856,17 @@ int main(int argc, char **argv)
 		case 's':
 			itchygen.all_sym.fname = strdup(optarg);
 			assert(itchygen.all_sym.fname);
+			break;
+		case 'L':	/* subscription list file */
+			itchygen.list_sym.fname = strdup(optarg);
+			assert(itchygen.list_sym.fname);
+			break;
+		case 'l':	/* ratio of subscribed symbols from the list */
+			if (list_ratio >= 0)
+				usage(E2BIG, "error: -l supplied twice");
+			err = str_to_int_range(optarg, list_ratio, 0, 100, 10);
+			if (err)
+				usage(bad_optarg(err, ch, optarg), NULL);
 			break;
 		case 'r':	/* orders rate */
 			if (orders_rate)
@@ -996,6 +1022,9 @@ int main(int argc, char **argv)
 	if (!itchygen.all_sym.fname)
 		usage(EINVAL, "error: symbols file name not supplied");
 
+	if (itchygen.list_sym.fname && list_ratio < 0)
+		usage(EINVAL, "error: subscription list was supplied but list ratio was not");
+
 	if (!itchygen.time2update)
 		usage(EINVAL, "error: mean time to next update not supplied");
 
@@ -1085,6 +1114,20 @@ int main(int argc, char **argv)
 	 *    then to make a new symbol:
 	 *    symbol_name_generate(&itchygen.symbol[i], NULL);
 	 */
+
+	if (itchygen.list_sym.fname) {
+		err = read_symbol_file(&itchygen.list_sym, 1);
+		if (err) {
+			printf("failed to read subscription list file\n");
+			exit(err);
+		}
+		exclude_symbol_file(&itchygen.all_sym, &itchygen.list_sym, 1);
+		exclude_symbol_file(&itchygen.list_sym, &itchygen.all_sym, 1);
+
+		itchygen.subscribed_prob_int[0].pcts_total = list_ratio;
+		itchygen.subscribed_prob_int[1].pcts_total = 100 - list_ratio;
+		rand_interval_init(itchygen.subscribed_prob_int, 2);
+	}
 
 	itchygen.order_type_prob_int[ORDER_ADD].pcts_total = 0;
 	itchygen.order_type_prob_int[ORDER_EXEC].pcts_total = prob_exec;

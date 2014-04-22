@@ -78,8 +78,8 @@ void usage(int status, char *msg)
 
 	printf("ITCH PCAP file parser, version %s\n\n"
 	       "Usage: %s [OPTION]\n"
-	       "-s, --symbol-file   file with ticker [s]ymbols to use\n"
-	       "-f, --file          output PCAP file name\n"
+	       "-f, --file          PCAP file name\n"
+	       "-L, --list-file     file with list of subscription symbols\n"
 	       "-x, --expect        first sequence num to expect\n"
 	       "-1, --edit-first    re-write seq. numbers, start with first\n"
 	       "-t, --edit-time     re-write time stamps, start with this\n"
@@ -94,8 +94,8 @@ void usage(int status, char *msg)
 }
 
 static struct option const long_options[] = {
-	{"symbol-file", required_argument, 0, 's'},
 	{"file", required_argument, 0, 'f'},
+	{"list-file", required_argument, 0, 'L'},
 	{"expect", required_argument, 0, 'x'},
 	{"edit-first", required_argument, 0, '1'},
 	{"time", required_argument, 0, 't'},
@@ -107,24 +107,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "s:f:x:1:t:0dvVh";
-
-static inline uint32_t name4_to_u32(char *name)
-{
-	uint32_t int_val;
-
-	int_val = (uint32_t)name[0];
-	int_val |= ((uint32_t)name[1]) << 8;
-	int_val |= ((uint32_t)name[2]) << 16;
-	int_val |= ((uint32_t)name[3]) << 24;
-
-	return int_val;
-}
-
-static uint32_t symbol_name_to_u32(struct trade_symbol *symbol)
-{
-	return name4_to_u32(symbol->name);
-}
+static char *short_options = "f:L:x:1:t:0dvVh";
 
 static void ep_printf(struct endpoint_addr *ep)
 {
@@ -165,10 +148,10 @@ int main(int argc, char **argv)
 			break;
 
 		switch (ch) {
-		case 's':
+		case 'L':
 			itchyparse.subscription.fname = strdup(optarg);
 			if (!itchyparse.subscription.fname) {
-				printf("failed to alloc mem for sym file name\n");
+				printf("failed to alloc mem for symbols list file name\n");
 				exit(ENOMEM);
 			}
 			break;

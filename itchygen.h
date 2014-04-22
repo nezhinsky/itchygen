@@ -17,7 +17,7 @@ extern "C" {
 #define likely(x)	__builtin_expect(!!(x), 1)
 #define unlikely(x)	__builtin_expect((x), 0)
 
-#define ITCHYGEN_VER_STR	"0.3.2"
+#define ITCHYGEN_VER_STR	"0.3.3"
 
 void version(void);
 void usage(int status, char *msg);
@@ -130,9 +130,21 @@ struct symbols_file {
 	unsigned int num_lines;
 	unsigned int num_symbols;
 	struct trade_symbol *symbol;
+	uint32_t poly;
+	struct dhash_table dhash;
 };
 
+uint32_t name4_to_u32(char *name);
+uint32_t symbol_name_to_u32(struct trade_symbol *symbol);
+
 int read_symbol_file(struct symbols_file * sym, int print_warn);
+void init_symbol_file_hash(struct symbols_file * sym);
+int is_in_symbol_file(struct symbols_file * sym, char *name);
+void cleanup_symbol_file_hash(struct symbols_file * sym);
+
+void exclude_symbol_file(struct symbols_file * from_sym,
+	struct symbols_file * exclude_sym,
+	int print_warn);
 
 #ifdef	__cplusplus
 }
