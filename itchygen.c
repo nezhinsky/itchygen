@@ -111,7 +111,7 @@ static void print_params(struct itchygen_info *itchygen)
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
 	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
-	       "\tdbg: %s, verbose: %s, ref_nums: %s, seed: %d\n"
+	       "\tdbg: %s, verbose: %s, ref_nums: %s (start: %llu), seed: %d\n"
 	       "\toutput file: %s\n\n",
 	       ITCHYGEN_VER_STR, time_buf,
 	       itchygen->all_sym.fname, itchygen->all_sym.num_lines,
@@ -131,7 +131,8 @@ static void print_params(struct itchygen_info *itchygen)
 	       (uint32_t) itchygen->dst.port,
 	       itchygen->debug_mode ? "on" : "off",
 	       itchygen->verbose_mode ? "on" : "off",
-	       itchygen->seq_ref_num ? "seq" : "random", itchygen->rand_seed,
+	       itchygen->seq_ref_num ? "seq" : "random",
+	       itchygen->cur_ref_num, itchygen->rand_seed,
 	       itchygen->out_fname ? : "itchygen.pcap");
 
 	if (itchygen->run_time * itchygen->orders_rate != itchygen->num_orders)
@@ -779,6 +780,7 @@ void usage(int status, char *msg)
 	       "* * * port range 1024..65535 supported, 49152..65535 recommended\n\n"
 	       "-f, --file          output PCAP file name\n"
 	       "-Q, --seq           sequential ref.nums, default: random\n"
+	       "-1, --first         first ref.num, only in sequential mode\n"
 	       "-S, --rand-seed     set the seed before starting work\n"
 	       "    --no-hash-del   refnums not deleted from hash on expiration\n"
 	       "-d, --debug         produce debug information\n"
@@ -809,6 +811,7 @@ static struct option const long_options[] = {
 	{"src-ip", required_argument, 0, 'I'},
 	{"file", required_argument, 0, 'f'},
 	{"seq", no_argument, 0, 'Q'},
+	{"first", no_argument, 0, '1'},
 	{"no-hash-del", no_argument, 0, '0'},
 	{"debug", no_argument, 0, 'd'},
 	{"verbose", no_argument, 0, 'v'},
@@ -817,7 +820,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "s:t:r:n:L:l:u:E:C:R:S:m:M:p:i:P:I:f:Q0dvVh";
+static char *short_options = "s:t:r:n:L:l:u:E:C:R:S:m:M:p:i:P:I:f:1:Q0dvVh";
 
 int main(int argc, char **argv)
 {
@@ -994,6 +997,11 @@ int main(int argc, char **argv)
 		case 'Q':
 			itchygen.seq_ref_num = 1;
 			break;
+		case '1':
+			err = str_to_int(optarg, itchygen.cur_ref_num, 0);
+			if (err)
+				usage(bad_optarg(err, ch, optarg), NULL);
+			break;
 		case '0':
 			itchygen.no_hash_del = 1;
 			break;
@@ -1100,6 +1108,11 @@ int main(int argc, char **argv)
 	} else {
 		usage(EINVAL, "error: you should supply at least "
 		      "2 of 3 probability (-E/-C/-R) arguments");
+	}
+
+	if (itchygen.cur_ref_num > 0 && !itchygen.seq_ref_num) {
+		usage(EINVAL, "error: first ref.num is relevant only for "
+		      "sequential ref.num mode (-Q)");
 	}
 
 	rand_util_init(use_seed, &itchygen.rand_seed);
