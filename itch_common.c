@@ -296,10 +296,11 @@ void init_symbol_file_hash(struct symbols_file * sym)
 	uint32_t name32, i;
 	int err;
 
-	get_default_poly(&sym->poly, 2);
+	i = get_default_poly(poly, 2);
+	assert(i == 2);
+
 	err = dhash_init(&sym->dhash, CRC_WIDTH, poly, 2);
 	assert(!err);
-	dhash_reset(&sym->dhash);
 
 	for (i = 0; i < sym->num_symbols; i++) {
 		name32 = name4_to_u32(sym->symbol[i].name);

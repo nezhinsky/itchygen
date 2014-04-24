@@ -130,7 +130,6 @@ struct symbols_file {
 	unsigned int num_lines;
 	unsigned int num_symbols;
 	struct trade_symbol *symbol;
-	uint32_t poly;
 	struct dhash_table dhash;
 };
 

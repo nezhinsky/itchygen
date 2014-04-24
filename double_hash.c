@@ -31,10 +31,11 @@ int dhash_add(struct dhash_table *dhash, uint32_t val)
 	for (p = 0; p < dhash->num_poly; p++) {
 		crc_val = calc_crc_uint32_table(&dhash->crc_poly[p], val);
 		bucket = &dhash->bucket[crc_val];
-		if (dhash_bucket_val_find(bucket, val) >= 0)
+		if (dhash_bucket_val_find(bucket, val) < 0) { /* not found */
+			if (!min_bucket || bucket->num < min_bucket->num)
+				min_bucket = bucket;
+		} else
 			return EEXIST;
-		if (!min_bucket || bucket->num < min_bucket->num)
-			min_bucket = bucket;
 	}
 
 	if (min_bucket->num < NUM_BUCKET_VALS) {
@@ -44,8 +45,8 @@ int dhash_add(struct dhash_table *dhash, uint32_t val)
 		dhash->num_free--;
 		return 0;
 	} else {
-		printf("bucket overflows, currently %d vals\n",
-		       min_bucket->num);
+		printf("bucket:0x%zx val:0x%x overflow, cur:%d vals\n",
+		       min_bucket - dhash->bucket, val, min_bucket->num);
 		return ENOMEM;
 	}
 }
@@ -87,6 +88,11 @@ int dhash_del(struct dhash_table *dhash, uint32_t val)
 	return ENOENT;
 }
 
+static inline size_t dhash_sz(struct dhash_table *dhash)
+{
+	return(sizeof(*dhash->bucket) * dhash->num_crc_vals);
+}
+
 int
 dhash_init(struct dhash_table *dhash, size_t crc_width,
 	   const uint32_t * poly, int npoly)
@@ -103,17 +109,19 @@ dhash_init(struct dhash_table *dhash, size_t crc_width,
 	dhash->num_crc_vals = 1 << crc_width;
 	dhash->num_free = dhash->num_crc_vals * NUM_BUCKET_VALS;
 
-	dhash->bucket = malloc(sizeof(*dhash->bucket) * dhash->num_crc_vals);
+	dhash->bucket = malloc(dhash_sz(dhash));
 	if (!dhash->bucket) {
 		printf("failed to alloc values table\n");
 		return ENOMEM;
 	}
+	dhash_reset(dhash);
 	return 0;
 }
 
 void dhash_reset(struct dhash_table *dhash)
 {
-	memset(dhash->bucket, 0, sizeof(*dhash->bucket) * dhash->num_crc_vals);
+	if (dhash->bucket)
+		memset(dhash->bucket, 0, dhash_sz(dhash));
 }
 
 void dhash_cleanup(struct dhash_table *dhash)
