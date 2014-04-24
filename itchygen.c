@@ -534,9 +534,10 @@ static struct order_event *generate_new_order(struct itchygen_info *itchygen,
 	order->prev_event = NULL;
 
 	if (itchygen->list_sym.fname &&
-	    rand_index(itchygen->subscribed_prob_int, 2) == 0)
+	    rand_index(itchygen->subscribed_prob_int, 2) == 0) {
 		sym_file = &itchygen->list_sym;
-	else
+		itchygen->stat.subscr_orders ++;
+	} else
 		sym_file = &itchygen->all_sym;
 	symbol_index = rand_int_range(0, sym_file->num_symbols - 1);
 	order->symbol = &sym_file->symbol[symbol_index];

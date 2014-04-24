@@ -339,9 +339,11 @@ int main(int argc, char **argv)
 			}
 			name32 = name4_to_u32(itch_pkt.msg.order.stock);
 			err = dhash_find(&itchyparse.subscr_dhash, name32);
-			if (!err) /* this order is for a subscribed symbol */
+			if (!err) {/* this order is for a subscribed symbol */
 				itchyparse.subscr_orders ++;
-			else {
+				if (itchyparse.debug_mode)
+					printf("%s refn:%u\n", itch_pkt.msg.order.stock, refn32);
+			} else {
 				assert(err == ENOENT);
 				itchyparse.unsubscr_orders ++;
 				/* added now or already present */
