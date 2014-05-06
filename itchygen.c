@@ -82,7 +82,6 @@ struct itchygen_info {
 	struct endpoint_addr dst;
 	struct endpoint_addr src;
 
-	int active;
 	unsigned long long cur_ref_num;
 	unsigned long long cur_match_num;
 	unsigned long long cur_seq_num;
@@ -702,7 +701,7 @@ static void *event_generator_thrd(void *arg)
 	if (itchygen->debug_mode)
 		printf("waiting until ev list empty\n");
 	usync_queue_shutdown(&itchygen->ev_queue);
-	itchygen->active = 0;
+
 	if (itchygen->debug_mode)
 		printf("generator exits...\n");
 	pthread_exit(NULL);
@@ -713,11 +712,14 @@ static void *pcap_writer_thrd(void *arg)
 	struct itchygen_info *itchygen = arg;
 	struct ulist_head wr_ev_list = ULIST_HEAD_INIT(wr_ev_list);
 	struct order_event *event, *next;
+	int err;
 
-	while (itchygen->active) {
-		usync_queue_pull_list(&itchygen->ev_queue, &wr_ev_list);
-		if (unlikely(!itchygen->ev_queue.active))
+	while (1) {
+		err = usync_queue_pull_list(&itchygen->ev_queue, &wr_ev_list);
+		if (unlikely(err)) {
+			assert(err == -1);
 			break;
+		}
 		ulist_for_each_safe(&wr_ev_list, event, next, time_node) {
 			ulist_del_from(&wr_ev_list, &event->time_node);
 			order_event_pcap_msg(itchygen, event);
@@ -1174,7 +1176,6 @@ int main(int argc, char **argv)
 
 	print_params(&itchygen);
 
-	itchygen.active = 1;
 	err = pthread_create(&thread1, NULL, event_generator_thrd, &itchygen);
 	if (err) {
 		printf("Failed to create generator thread, %m\n");

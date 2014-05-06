@@ -35,7 +35,7 @@ struct ulist_node *usync_queue_pop_(struct usync_queue *q, size_t off);
 #define usync_queue_pop(q, type, member) \
 	(usync_queue_pop_(q, ulist_off_(type, member)))
 
-void usync_queue_pull_list(struct usync_queue *q, struct ulist_head *h);
+int usync_queue_pull_list(struct usync_queue *q, struct ulist_head *h);
 
 void usync_queue_shutdown(struct usync_queue *q);
 
