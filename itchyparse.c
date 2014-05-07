@@ -132,6 +132,7 @@ int main(int argc, char **argv)
 	struct endpoint_addr dst_ep, src_ep;
 	struct endpoint_addr first_dst_ep, first_src_ep;
 	int ch, longindex, err;
+	const char *optname;
 
 	if (argc < 2)
 		usage(0, NULL);
@@ -145,6 +146,8 @@ int main(int argc, char **argv)
 				 long_options, &longindex);
 		if (ch < 0)
 			break;
+
+		optname = long_options[longindex].name;
 
 		switch (ch) {
 		case 'L':
@@ -164,18 +167,18 @@ int main(int argc, char **argv)
 		case 'x':
 			err = str_to_int_ge(optarg, itchyparse.expect_first_seq, 0);
 			if (err)
-				usage(bad_optarg(err, ch, optarg), NULL);
+				usage(bad_optarg(err, optname, optarg), NULL);
 			break;
 		case '1':
 			err = str_to_int_ge(optarg, itchyparse.edit_first_seq, 0);
 			if (err)
-				usage(bad_optarg(err, ch, optarg), NULL);
+				usage(bad_optarg(err, optname, optarg), NULL);
 			edit_recs = 1;
 			break;
 		case 't':
 			err = str_to_int_ge(optarg, itchyparse.edit_start_sec, 0);
 			if (err)
-				usage(bad_optarg(err, ch, optarg), NULL);
+				usage(bad_optarg(err, optname, optarg), NULL);
 			break;
 		case '0':
 			itchyparse.no_hash_del = 1;

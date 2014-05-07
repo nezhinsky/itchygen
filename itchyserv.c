@@ -130,6 +130,7 @@ static char *short_options = "a:p:sqdvVh";
 int main(int argc, char **argv)
 {
 	int ch, longindex, err;
+	const char *optname;
 	int sockfd, n;
 	struct sockaddr_in servaddr, cliaddr;
 	socklen_t len;
@@ -153,6 +154,8 @@ int main(int argc, char **argv)
 		if (ch < 0)
 			break;
 
+		optname = long_options[longindex].name;
+
 		switch (ch) {
 		case 'a':
 			if (!inet_aton(optarg, &servaddr.sin_addr)) {
@@ -163,7 +166,7 @@ int main(int argc, char **argv)
 		case 'p':
 			err = str_to_int_range(optarg, port, 1024, 65535, 10);
 			if (err)
-				usage(bad_optarg(err, ch, optarg), NULL);
+				usage(bad_optarg(err, optname, optarg), NULL);
 			break;
 		case 's':
 			strict_mode = 1;
