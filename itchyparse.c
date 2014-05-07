@@ -56,12 +56,11 @@ struct itchyparse_info {
 	int verbose_mode;
 	unsigned int num_poly;
 	uint32_t poly[MAX_POLY];
-	struct dhash_table dhash;
-	struct dhash_table subscr_dhash;
-	struct dhash_table unsubscr_dhash;
+	struct dhash_table refn_dhash;
+	struct dhash_table subscr_name_dhash;
+	struct dhash_table subscr_refn_dhash;
 	struct itchygen_stat stat;
-	unsigned int unsubscr_orders;
-	unsigned int subscr_orders;
+	unsigned long long unsubscr_orders;
 	unsigned long long expect_first_seq;
 	unsigned long long edit_first_seq;
 	unsigned long long edit_start_sec;
@@ -209,30 +208,30 @@ int main(int argc, char **argv)
 	if (itchyparse.subscription.fname) {
 		int i;
 
-		err = dhash_init(&itchyparse.subscr_dhash, CRC_WIDTH,
-				 itchyparse.poly, 1);
-		assert(!err);
-
-		err = dhash_init(&itchyparse.unsubscr_dhash, CRC_WIDTH,
-				 itchyparse.poly, 1);
-		assert(!err);
-
 		err = read_symbol_file(&itchyparse.subscription, 1);
 		if (err) {
 			printf("failed to read symbols file\n");
 			exit(err);
 		}
 
+		err = dhash_init(&itchyparse.subscr_name_dhash, CRC_WIDTH,
+				 itchyparse.poly, 1);
+		assert(!err);
+
+		err = dhash_init(&itchyparse.subscr_refn_dhash, CRC_WIDTH,
+				 itchyparse.poly, itchyparse.num_poly);
+		assert(!err);
+
 		for (i = 0; i < itchyparse.subscription.num_symbols; i++) {
-			err = dhash_add(&itchyparse.subscr_dhash,
+			err = dhash_add(&itchyparse.subscr_name_dhash,
 				symbol_name_to_u32(&itchyparse.subscription.symbol[i]));
-			assert(!err || err == EEXIST);
+			assert(!err); // || err == EEXIST);
 		}
 	}
 
 //	time_list_init(&itchyparse);
 
-	err = dhash_init(&itchyparse.dhash, CRC_WIDTH,
+	err = dhash_init(&itchyparse.refn_dhash, CRC_WIDTH,
 			 itchyparse.poly, itchyparse.num_poly);
 	if (err) {
 		errno = err;
@@ -316,11 +315,13 @@ int main(int argc, char **argv)
 		}
 		cur_seq_num ++;
 
+		refn32 = (uint32_t)be64toh(itch_pkt.msg.common.ref_num);
+
 		switch (itch_pkt.msg.common.msg_type) {
 		case MSG_TYPE_ADD_ORDER_NO_MPID:
 			itchyparse.stat.orders ++;
-			refn32 = (uint32_t)be64toh(itch_pkt.msg.common.ref_num);
-			err = dhash_add(&itchyparse.dhash, refn32);
+
+			err = dhash_add(&itchyparse.refn_dhash, refn32);
 			if (unlikely(err)) {
 				if (err == EEXIST)
 					assert(itchyparse.no_hash_del);
@@ -328,7 +329,7 @@ int main(int argc, char **argv)
 					itchyparse.stat.bucket_overflows++;
 				else {
 					assert(err == ENOSPC);
-					printf("hash table full\n");
+					printf("refn hash table full\n");
 					exit(1);
 				}
 			}
@@ -337,28 +338,48 @@ int main(int argc, char **argv)
 				itchyparse.unsubscr_orders ++;
 				break;
 			}
+
 			name32 = name4_to_u32(itch_pkt.msg.order.stock);
-			err = dhash_find(&itchyparse.subscr_dhash, name32);
+			err = dhash_find(&itchyparse.subscr_name_dhash, name32);
 			if (!err) {/* this order is for a subscribed symbol */
-				itchyparse.subscr_orders ++;
-				if (itchyparse.debug_mode)
-					printf("%s refn:%u\n", itch_pkt.msg.order.stock, refn32);
+				itchyparse.stat.subscr_orders ++;
+				if (itchyparse.debug_mode) {
+					printf("%s refn:%u\n",
+					       itch_pkt.msg.order.stock,
+					       refn32);
+				}
+				/* store this order's ref num */
+				err = dhash_add(&itchyparse.subscr_refn_dhash,
+						refn32);
+				assert(!err || err == EEXIST);
 			} else {
 				assert(err == ENOENT);
 				itchyparse.unsubscr_orders ++;
-				/* added now or already present */
-				err = dhash_add(&itchyparse.unsubscr_dhash, name32);
-				assert(!err || err == EEXIST);
 			}
 			break;
 		case MSG_TYPE_ORDER_EXECUTED:
 			itchyparse.stat.execs ++;
+			err = dhash_find(&itchyparse.subscr_refn_dhash, refn32);
+			if (!err)
+				itchyparse.stat.subscr_execs ++;
+			else
+				assert(err == ENOENT);
 			break;
 		case MSG_TYPE_ORDER_CANCEL:
 			itchyparse.stat.cancels ++;
+			err = dhash_find(&itchyparse.subscr_refn_dhash, refn32);
+			if (!err)
+				itchyparse.stat.subscr_cancels ++;
+			else
+				assert(err == ENOENT);
 			break;
 		case MSG_TYPE_ORDER_REPLACE:
 			itchyparse.stat.replaces ++;
+			err = dhash_find(&itchyparse.subscr_refn_dhash, refn32);
+			if (!err)
+				itchyparse.stat.subscr_replaces ++;
+			else
+				assert(err == ENOENT);
 			break;
 		case MSG_TYPE_TIMESTAMP:
 			itchyparse.stat.timestamps ++;
@@ -383,32 +404,41 @@ int main(int argc, char **argv)
 	pcap_file_close();
 
 //	print_params(&itchyparse);
-	print_stats(&itchyparse.stat, &itchyparse.dhash);
+	print_stats(&itchyparse.stat, &itchyparse.refn_dhash);
 	printf("\tseq.nums: %llu - %llu, seq.errors: %llu, "
 		"illegal msg.types: %u\n",
 		first_seq_num, last_seq_num, seq_errors, illegal_types);
 
-	assert(itchyparse.subscr_orders + itchyparse.unsubscr_orders ==
+	assert(itchyparse.stat.subscr_orders + itchyparse.unsubscr_orders ==
 		itchyparse.stat.orders);
 
 	if (itchyparse.subscription.fname && itchyparse.stat.orders) {
-		printf("\torders:%llu, subscription symbols: %u, "
-			"subscribed: %u (%3.1f%%), unsubscribed: %u (%3.1f%%)\n",
-			itchyparse.stat.orders,
+		printf("\tsubscription symbols: %u\n"
+			"\torders: %llu, subscribed: %llu (%3.1f%%), "
+			"unsubscribed: %llu (%3.1f%%)\n"
+			"\texecs: %llu, subscribed: %llu\n"
+			"\tcancels: %llu, subscribed: %llu\n"
+			"\treplaces: %llu, subscribed: %llu\n",
 			itchyparse.subscription.num_symbols,
-			itchyparse.subscr_orders,
-			(itchyparse.subscr_orders * 100.0) /
+			itchyparse.stat.orders, itchyparse.stat.subscr_orders,
+			(itchyparse.stat.subscr_orders * 100.0) /
 			itchyparse.stat.orders,
 			itchyparse.unsubscr_orders,
 			(itchyparse.unsubscr_orders * 100.0) /
-			itchyparse.stat.orders);
+			itchyparse.stat.orders,
+			itchyparse.stat.execs, itchyparse.stat.subscr_execs,
+			itchyparse.stat.cancels, itchyparse.stat.subscr_cancels,
+			itchyparse.stat.replaces, itchyparse.stat.subscr_replaces);
 	}
 
-	dhash_cleanup(&itchyparse.dhash);
+	dhash_cleanup(&itchyparse.refn_dhash);
 	if (itchyparse.pcap_fname)
 		free(itchyparse.pcap_fname);
-	if (itchyparse.subscription.fname)
+	if (itchyparse.subscription.fname) {
 		free(itchyparse.subscription.fname);
+		dhash_cleanup(&itchyparse.subscr_refn_dhash);
+		dhash_cleanup(&itchyparse.subscr_name_dhash);
+	}
 
 	return 0;
 }
