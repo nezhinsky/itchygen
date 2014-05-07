@@ -64,12 +64,12 @@ extern "C" {
         ret;                                            \
 })
 
-static inline int bad_optarg(int err, int ch, char *optarg)
+static inline int bad_optarg(int err, const char *arg, char *optarg)
 {
 	if (err == ERANGE)
-		printf("-%c argument value '%s' out of range\n", ch, optarg);
+		printf("--%s argument value '%s' out of range\n", arg, optarg);
 	else
-		printf("-%c argument value '%s' invalid\n", ch, optarg);
+		printf("--%s argument value '%s' invalid\n", arg, optarg);
 	return err;
 }
 
