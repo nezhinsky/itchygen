@@ -155,7 +155,8 @@ static unsigned long long generate_ref_num(struct itchygen_info *itchygen)
 		return (unsigned long long)refn32;
 	if (err == EEXIST) {
 		assert(itchygen->no_hash_del);
-		return (unsigned long long)refn32;
+		//return (unsigned long long)refn32;
+		goto generate;
 	}
 	if (err == ENOMEM) {	/* no space in the bucket(s) */
 		itchygen->stat.bucket_overflows++;
