@@ -62,6 +62,8 @@ struct time_list {
 	unsigned int last_unit;
 };
 
+#define DEFAULT_MIN_TIME2UPD	10
+
 struct itchygen_info {
 	struct symbols_file all_sym;
 	struct symbols_file list_sym;
@@ -70,7 +72,11 @@ struct itchygen_info {
 	unsigned long orders_rate;
 	unsigned long num_orders;
 	int num_rate_args;
+
 	unsigned int time2update;
+	unsigned int time2update_min;
+	double time2update_min_f;
+
 	int num_prob_args;
 	int seq_ref_num;
 	int no_hash_del;
@@ -106,7 +112,7 @@ static void print_params(struct itchygen_info *itchygen)
 	printf("\nitchygen ver %s started at %s\narguments:\n"
 	       "\tsymbols file: %s, lines: %d, used: %d\n"
 	       "\trun time: %d sec, rate: %ld orders/sec, orders: %ld, "
-	       "mean update time: %d msec\n"
+	       "mean update time: %d msec (minimal: %d msec)\n"
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
 	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
@@ -115,8 +121,8 @@ static void print_params(struct itchygen_info *itchygen)
 	       ITCHYGEN_VER_STR, time_buf,
 	       itchygen->all_sym.fname, itchygen->all_sym.num_lines,
 	       itchygen->all_sym.num_symbols,
-	       itchygen->run_time, itchygen->orders_rate,
-	       itchygen->num_orders, itchygen->time2update,
+	       itchygen->run_time, itchygen->orders_rate, itchygen->num_orders,
+	       itchygen->time2update, itchygen->time2update_min,
 	       itchygen->order_type_prob_int[ORDER_EXEC].pcts_total,
 	       itchygen->order_type_prob_int[ORDER_CANCEL].pcts_total,
 	       itchygen->order_type_prob_int[ORDER_REPLACE].pcts_total,
@@ -175,8 +181,13 @@ static inline double gen_inter_order_time(struct itchygen_info *itchygen)
 
 static inline double gen_time_to_update(struct itchygen_info *itchygen)
 {
-	/* mean time-to-update is given in msecs */
-	return rand_exp_time_by_mean(0.001 * (double)itchygen->time2update);
+	/* mean time-to-update given in msecs */
+	unsigned int mean_time_msec =
+		(itchygen->time2update > itchygen->time2update_min) ?
+		(itchygen->time2update - itchygen->time2update_min) : 0;
+	double mean_sec = 0.001 * (double)mean_time_msec;
+	/* lower limit 10 msec */
+	return itchygen->time2update_min_f + rand_exp_time_by_mean(mean_sec);
 }
 
 static void order_event_free_back(struct order_event *event)
@@ -774,6 +785,7 @@ void usage(int status, char *msg)
 	       "-L, --list-file     file with list of subscription symbols\n"
 	       "-l, --list-ratio    ratio of subscribed symbols\n\n"
 	       "-u, --time2update   mean time to order's [u]pdate (msec)\n"
+	       "    --min-time2upd  minimal time to update, default: %d msec\n"
 	       "-E, --prob-exec     probability of execution (0%%-100%%)\n"
 	       "-C, --prob-cancel   probability of cancel (0%%-100%%)\n"
 	       "-R, --prob-replace  probability of replace (0%%-100%%)\n"
@@ -794,7 +806,7 @@ void usage(int status, char *msg)
 	       "-v, --verbose       produce verbose output\n"
 	       "-V, --version       print version and exit\n"
 	       "-h, --help          display this help and exit\n",
-	       ITCHYGEN_VER_STR, program_name);
+	       ITCHYGEN_VER_STR, program_name, DEFAULT_MIN_TIME2UPD);
 	exit(0);
 }
 
@@ -804,6 +816,7 @@ static struct option const long_options[] = {
 	{"orders-rate", required_argument, 0, 'r'},
 	{"orders-num", required_argument, 0, 'n'},
 	{"time2update", required_argument, 0, 'u'},
+	{"min-time2upd", required_argument, 0, '_'}, /* short arg hidden */
 	{"list-file", required_argument, 0, 'L'},
 	{"list-ratio", required_argument, 0, 'l'},
 	{"prob-exec", required_argument, 0, 'E'},
@@ -819,7 +832,7 @@ static struct option const long_options[] = {
 	{"file", required_argument, 0, 'f'},
 	{"seq", no_argument, 0, 'Q'},
 	{"first", no_argument, 0, '1'},
-	{"no-hash-del", no_argument, 0, '0'},
+	{"no-hash-del", no_argument, 0, '0'}, /* short arg hidden */
 	{"debug", no_argument, 0, 'd'},
 	{"verbose", no_argument, 0, 'v'},
 	{"version", no_argument, 0, 'V'},
@@ -854,6 +867,7 @@ int main(int argc, char **argv)
 
 	memset(&itchygen, 0, sizeof(itchygen));
 	itchygen.num_poly = get_default_poly(itchygen.poly, MAX_POLY);
+	itchygen.time2update_min = DEFAULT_MIN_TIME2UPD;
 
 	opterr = 0;		/* global getopt variable */
 	for (;;) {
@@ -924,6 +938,11 @@ int main(int argc, char **argv)
 			break;
 		case 'u':	/* mean time to next update message, msec */
 			err = str_to_int_gt(optarg, itchygen.time2update, 0);
+			if (err)
+				usage(bad_optarg(err, ch, optarg), NULL);
+			break;
+		case '_':
+			err = str_to_int_ge(optarg, itchygen.time2update_min, 10);
 			if (err)
 				usage(bad_optarg(err, ch, optarg), NULL);
 			break;
@@ -1121,6 +1140,8 @@ int main(int argc, char **argv)
 		usage(EINVAL, "error: first ref.num is relevant only for "
 		      "sequential ref.num mode (-Q)");
 	}
+
+	itchygen.time2update_min_f = 0.001 * (double)itchygen.time2update_min;
 
 	rand_util_init(use_seed, &itchygen.rand_seed);
 
