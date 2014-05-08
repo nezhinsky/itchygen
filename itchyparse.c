@@ -308,10 +308,11 @@ int main(int argc, char **argv)
 			printf("seq.err. expected:%llu recvd:%llu\n",
 				cur_seq_num, rec_seq_num);
 			if (edit_recs) {
-				if (rec_seq_num > cur_seq_num)
-					new_seq_num += (rec_seq_num - cur_seq_num);
+				new_seq_num = itchyparse.edit_first_seq;
+				if (rec_seq_num > first_seq_num)
+					new_seq_num += (rec_seq_num - first_seq_num);
 				else
-					new_seq_num -= (cur_seq_num - rec_seq_num);
+					new_seq_num -= (first_seq_num - rec_seq_num);
 			}
 			cur_seq_num = rec_seq_num; /* update expected */
 			seq_errors ++;
@@ -394,7 +395,7 @@ int main(int argc, char **argv)
 
 		if (edit_recs) {
 			itch_pkt.mold.seq_num = htobe64(new_seq_num);
-			new_seq_num ++;
+			new_seq_num ++; /* if recs are consequtive this value is used */
 			err = pcap_file_replace_last_record(&itch_pkt, pkt_len);
 			if (unlikely(err)) {
 				printf("failed to re-write pcap file, %m\n");
@@ -411,6 +412,9 @@ int main(int argc, char **argv)
 	printf("\tseq.nums: %llu - %llu, seq.errors: %llu, "
 		"illegal msg.types: %u\n",
 		first_seq_num, last_seq_num, seq_errors, illegal_types);
+	if (edit_recs)
+		printf("\tedited seq.nums: %llu - %llu\n",
+			itchyparse.edit_first_seq, new_seq_num - 1);
 
 	assert(itchyparse.stat.subscr_orders + itchyparse.unsubscr_orders ==
 		itchyparse.stat.orders);
