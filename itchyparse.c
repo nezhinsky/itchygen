@@ -242,6 +242,7 @@ int main(int argc, char **argv)
 		return err;
 	}
 
+	printf("\nfile: %s\n", itchyparse.pcap_fname);
 	err = pcap_file_open_rd(itchyparse.pcap_fname);
 	if (err) {
 		errno = err;
