@@ -126,6 +126,13 @@ int pcap_file_open(char *fname,
 	return 0;
 }
 
+void pcap_file_set_wr_endpoints(struct endpoint_addr *dst,
+				struct endpoint_addr *src)
+{
+	_dst = *dst;
+	_src = *src;
+}
+
 int pcap_file_open_rd(char *fname)
 {
 	fpcap = fopen(fname, "r+");

@@ -287,6 +287,7 @@ int main(int argc, char **argv)
 					new_seq_num = itchyparse.edit_first_seq;
 				else /* no need to edit */
 					edit_recs = 0;
+				pcap_file_set_wr_endpoints(&dst_ep, &src_ep);
 			}
 		}
 

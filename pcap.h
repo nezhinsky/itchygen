@@ -75,6 +75,8 @@ static inline int ep_addr_all_set(struct endpoint_addr *ep)
 
 int pcap_file_open(char *fname,
 		   struct endpoint_addr *dst, struct endpoint_addr *src);
+void pcap_file_set_wr_endpoints(
+		   struct endpoint_addr *dst, struct endpoint_addr *src);
 int pcap_file_add_record(unsigned int tsec, unsigned int tusec,
 			 void *data, size_t len);
 int pcap_file_open_rd(char *fname);
