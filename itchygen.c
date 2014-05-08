@@ -88,9 +88,13 @@ struct itchygen_info {
 	struct endpoint_addr dst;
 	struct endpoint_addr src;
 
+	unsigned int first_ref_num;
+	unsigned long long first_seq_num;
+
 	unsigned long long cur_ref_num;
 	unsigned long long cur_match_num;
 	unsigned long long cur_seq_num;
+
 	unsigned int num_poly;
 	uint32_t poly[MAX_POLY];
 	struct dhash_table dhash;
@@ -116,7 +120,8 @@ static void print_params(struct itchygen_info *itchygen)
 	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
 	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
 	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
-	       "\tdbg: %s, verbose: %s, ref_nums: %s (start: %llu), seed: %d\n"
+	       "\tref_nums: %s, first ref_num: %u, first seq_num: %llu\n"
+	       "\tdbg: %s, verbose: %s, seed: %d\n"
 	       "\toutput file: %s\n",
 	       ITCHYGEN_VER_STR, time_buf,
 	       itchygen->all_sym.fname, itchygen->all_sym.num_lines,
@@ -134,10 +139,11 @@ static void print_params(struct itchygen_info *itchygen)
 	       itchygen->dst.mac[3], itchygen->dst.mac[4], itchygen->dst.mac[5],
 	       inet_ntop(AF_INET, &itchygen->dst.ip_addr, d_ip_str, 32),
 	       (uint32_t) itchygen->dst.port,
+	       itchygen->seq_ref_num ? "sequential" : "random",
+	       itchygen->first_ref_num, itchygen->first_seq_num,
 	       itchygen->debug_mode ? "on" : "off",
 	       itchygen->verbose_mode ? "on" : "off",
-	       itchygen->seq_ref_num ? "seq" : "random",
-	       itchygen->cur_ref_num, itchygen->rand_seed,
+	       itchygen->rand_seed,
 	       itchygen->out_fname ? : "itchygen.pcap");
 
 	if (itchygen->run_time * itchygen->orders_rate != itchygen->num_orders)
@@ -799,7 +805,8 @@ void usage(int status, char *msg)
 	       "* * * port range 1024..65535 supported, 49152..65535 recommended\n\n"
 	       "-f, --file          output PCAP file name\n"
 	       "-Q, --seq           sequential ref.nums, default: random\n"
-	       "-1, --first         first ref.num, only in sequential mode\n"
+	       "    --first-ref     first ref.num, only in sequential mode\n"
+	       "    --first-seq     first seq.num\n"
 	       "-S, --rand-seed     set the seed before starting work\n"
 	       "    --no-hash-del   refnums not deleted from hash on expiration\n"
 	       "-d, --debug         produce debug information\n"
@@ -830,9 +837,10 @@ static struct option const long_options[] = {
 	{"src-port", required_argument, 0, 'P'},
 	{"src-ip", required_argument, 0, 'I'},
 	{"file", required_argument, 0, 'f'},
-	{"seq", no_argument, 0, 'Q'},
-	{"first", no_argument, 0, '1'},
 	{"no-hash-del", no_argument, 0, '0'}, /* short arg hidden */
+	{"first-ref", required_argument, 0, '1'}, /* short arg hidden */
+	{"first-seq", required_argument, 0, '2'}, /* short arg hidden */
+	{"seq", no_argument, 0, 'Q'},
 	{"debug", no_argument, 0, 'd'},
 	{"verbose", no_argument, 0, 'v'},
 	{"version", no_argument, 0, 'V'},
@@ -840,7 +848,7 @@ static struct option const long_options[] = {
 	{0, 0, 0, 0},
 };
 
-static char *short_options = "s:t:r:n:L:l:u:E:C:R:S:m:M:p:i:P:I:f:1:Q0dvVh";
+static char *short_options = "s:t:r:n:L:l:u:E:C:R:S:m:M:p:i:P:I:f:1:2:Q0dvVh";
 
 int main(int argc, char **argv)
 {
@@ -1027,7 +1035,12 @@ int main(int argc, char **argv)
 			itchygen.seq_ref_num = 1;
 			break;
 		case '1':
-			err = str_to_int(optarg, itchygen.cur_ref_num, 0);
+			err = str_to_int(optarg, itchygen.first_ref_num, 0);
+			if (err)
+				usage(bad_optarg(err, optname, optarg), NULL);
+			break;
+		case '2':
+			err = str_to_int(optarg, itchygen.first_seq_num, 0);
 			if (err)
 				usage(bad_optarg(err, optname, optarg), NULL);
 			break;
@@ -1139,9 +1152,13 @@ int main(int argc, char **argv)
 		      "2 of 3 probability (-E/-C/-R) arguments");
 	}
 
-	if (itchygen.cur_ref_num > 0 && !itchygen.seq_ref_num) {
-		usage(EINVAL, "error: first ref.num is relevant only for "
-		      "sequential ref.num mode (-Q)");
+	itchygen.cur_seq_num = itchygen.first_seq_num;
+	if (itchygen.first_ref_num > 0) {
+		if (!itchygen.seq_ref_num) {
+			usage(EINVAL, "error: first ref.num is relevant "
+			      "only for sequential ref.num mode (-Q)");
+		}
+		itchygen.cur_ref_num = itchygen.first_ref_num;
 	}
 
 	itchygen.time2update_min_f = 0.001 * (double)itchygen.time2update_min;
