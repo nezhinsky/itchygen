@@ -166,16 +166,42 @@ void order_event_print(struct order_event *event,
 	}
 }
 
+static char equality_char(unsigned long long x, unsigned long long y)
+{
+	if (x == y)
+		return '=';
+	else if (x > y)
+		return '>';
+	else
+		return '<';
+}
+
 void print_stats(struct itchygen_stat *s, struct dhash_table *dhash)
 {
+	unsigned long long total_execs = s->execs +
+				s->cancels + s->replaces;
+	unsigned long long total_subscr_execs = s->subscr_execs +
+				s->subscr_cancels + s->subscr_replaces;
 	struct dhash_stat ds;
 	int i;
 
 	dhash_stat(dhash, &ds);
-	printf("\nstatistics:\n"
-	       "\ttimestamps:%llu orders:%llu (subscribed:%llu) exec:%llu cancel:%llu replace:%llu\n",
-	       s->timestamps, s->orders, s->subscr_orders, s->execs, s->cancels, s->replaces);
-	printf("\thash table entries:%u, bucket all-times-max:%u, overflows:%u\n",
+	printf(	"\tpackets: %llu timestamps: %llu\n",
+		(s->orders + total_execs + s->timestamps),
+		s->timestamps);
+	printf( "\ttotal orders: %llu %c exec: %llu (%3.1f%%) + "
+		"cancel: %llu (%3.1f%%) + replace: %llu (%3.1f%%)\n",
+		s->orders, equality_char(s->orders, total_execs),
+		s->execs, (s->execs * 100.0) / total_execs,
+		s->cancels, (s->cancels * 100.0) / total_execs,
+		s->replaces, (s->replaces * 100.0) / total_execs);
+	printf(	"\tsubscribed orders: %llu (%3.1f%%) %c exec: %llu + "
+		"cancel: %llu + replace: %llu\n",
+		s->subscr_orders,
+		(s->subscr_orders * 100.0) / s->orders,
+		equality_char(s->subscr_orders, total_subscr_execs),
+		s->subscr_execs, s->subscr_cancels, s->subscr_replaces);
+	printf("\thash table entries: %u, bucket all-times-max: %u, overflows: %u\n",
 	       ds.num_entries, ds.bucket_abs_max, s->bucket_overflows);
 	printf("\tbucket ");
 	for (i = 0; i <= NUM_BUCKET_VALS; i++)

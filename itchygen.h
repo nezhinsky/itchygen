@@ -63,6 +63,7 @@ struct order_event {
 	enum order_event_type type;
 	struct order_event *prev_event;
 	struct trade_symbol *symbol;
+	int subscribed;
 	double time;
 	unsigned int t_sec;
 	unsigned int t_nsec;

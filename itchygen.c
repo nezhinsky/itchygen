@@ -113,38 +113,52 @@ static void print_params(struct itchygen_info *itchygen)
 
 	strftime(time_buf, sizeof(time_buf), "%F %T", localtime(&t));
 
-	printf("\nitchygen ver %s started at %s\narguments:\n"
-	       "\tsymbols file: %s, lines: %d, used: %d\n"
-	       "\trun time: %d sec, rate: %ld orders/sec, orders: %ld, "
-	       "mean update time: %d msec (minimal: %d msec)\n"
-	       "\tprobability of exec: %d%% cancel: %d%% replace: %d%%\n"
-	       "\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
-	       "[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n"
-	       "\tref_nums: %s, first ref_num: %u, first seq_num: %llu\n"
-	       "\tdbg: %s, verbose: %s, seed: %d\n"
-	       "\toutput file: %s\n",
-	       ITCHYGEN_VER_STR, time_buf,
-	       itchygen->all_sym.fname, itchygen->all_sym.num_lines,
-	       itchygen->all_sym.num_symbols,
-	       itchygen->run_time, itchygen->orders_rate, itchygen->num_orders,
-	       itchygen->time2update, itchygen->time2update_min,
-	       itchygen->order_type_prob_int[ORDER_EXEC].pcts_total,
-	       itchygen->order_type_prob_int[ORDER_CANCEL].pcts_total,
-	       itchygen->order_type_prob_int[ORDER_REPLACE].pcts_total,
-	       itchygen->src.mac[0], itchygen->src.mac[1], itchygen->src.mac[2],
-	       itchygen->src.mac[3], itchygen->src.mac[4], itchygen->src.mac[5],
-	       inet_ntop(AF_INET, &itchygen->src.ip_addr, s_ip_str, 32),
-	       (uint32_t) itchygen->src.port,
-	       itchygen->dst.mac[0], itchygen->dst.mac[1], itchygen->dst.mac[2],
-	       itchygen->dst.mac[3], itchygen->dst.mac[4], itchygen->dst.mac[5],
-	       inet_ntop(AF_INET, &itchygen->dst.ip_addr, d_ip_str, 32),
-	       (uint32_t) itchygen->dst.port,
-	       itchygen->seq_ref_num ? "sequential" : "random",
-	       itchygen->first_ref_num, itchygen->first_seq_num,
-	       itchygen->debug_mode ? "on" : "off",
-	       itchygen->verbose_mode ? "on" : "off",
-	       itchygen->rand_seed,
-	       itchygen->out_fname ? : "itchygen.pcap");
+	printf("\nitchygen ver %s started at %s\narguments:\n",
+		ITCHYGEN_VER_STR, time_buf);
+
+	printf("\trun time: %d sec, rate: %ld orders/sec, orders: %ld\n"
+		"\tupdate time mean: %d ms, minimal: %d ms\n"
+		"\tprobability of exec: %d%%, cancel: %d%%, replace: %d%%\n",
+		itchygen->run_time, itchygen->orders_rate, itchygen->num_orders,
+		itchygen->time2update, itchygen->time2update_min,
+		itchygen->order_type_prob_int[ORDER_EXEC].pcts_total,
+		itchygen->order_type_prob_int[ORDER_CANCEL].pcts_total,
+		itchygen->order_type_prob_int[ORDER_REPLACE].pcts_total);
+
+	printf("\t[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d -> "
+		"[%02x:%02x:%02x:%02x:%02x:%02x] %s:%d\n",
+		itchygen->src.mac[0], itchygen->src.mac[1], itchygen->src.mac[2],
+		itchygen->src.mac[3], itchygen->src.mac[4], itchygen->src.mac[5],
+		inet_ntop(AF_INET, &itchygen->src.ip_addr, s_ip_str, 32),
+		(uint32_t) itchygen->src.port,
+		itchygen->dst.mac[0], itchygen->dst.mac[1], itchygen->dst.mac[2],
+		itchygen->dst.mac[3], itchygen->dst.mac[4], itchygen->dst.mac[5],
+		inet_ntop(AF_INET, &itchygen->dst.ip_addr, d_ip_str, 32),
+		(uint32_t) itchygen->dst.port);
+
+	printf("\tfirst seq_num: %llu, ", itchygen->first_seq_num);
+	printf("ref_nums: %s",
+		itchygen->seq_ref_num ? "sequential" : "random");
+	if (itchygen->seq_ref_num)
+		printf(", first ref_num: %u", itchygen->first_ref_num);
+
+	printf("\n\tdebug: %s, verbose: %s, seed: %d\n",
+		itchygen->debug_mode ? "on" : "off",
+		itchygen->verbose_mode ? "on" : "off",
+		itchygen->rand_seed);
+
+	printf("\toutput pcap file: %s\n",
+		itchygen->out_fname ? : "itchygen.pcap");
+	printf("\tsymbols file: %s, lines: %d, used: %d\n",
+		itchygen->all_sym.fname, itchygen->all_sym.num_lines,
+		itchygen->all_sym.num_symbols);
+	if (itchygen->list_sym.fname) {
+		printf("\tsubscription file: %s, lines: %d, used: %d, "
+			"probability: %d%%\n",
+			itchygen->list_sym.fname, itchygen->list_sym.num_lines,
+			itchygen->list_sym.num_symbols,
+			itchygen->subscribed_prob_int[0].pcts_total);
+	}
 
 	if (itchygen->run_time * itchygen->orders_rate != itchygen->num_orders)
 		printf("WARNING: time * rate != orders, generation will stop "
@@ -165,12 +179,10 @@ static unsigned long long generate_ref_num(struct itchygen_info *itchygen)
 	err = dhash_add(&itchygen->dhash, refn32);
 	if (likely(!err))	/* added successfully */
 		return (unsigned long long)refn32;
-	if (err == EEXIST) {
-		assert(itchygen->no_hash_del);
-		//return (unsigned long long)refn32;
+	else if (err == EEXIST) {	/* only in random refnum mode */
+		assert(!itchygen->seq_ref_num);
 		goto generate;
-	}
-	if (err == ENOMEM) {	/* no space in the bucket(s) */
+	} else if (err == ENOMEM) {	/* no space in the bucket(s) */
 		itchygen->stat.bucket_overflows++;
 		goto generate;
 	} else {
@@ -373,7 +385,7 @@ void order_event_submit(struct itchygen_info *itchygen,
 	if (unlikely(itchygen->verbose_mode))
 		order_event_print(event, ">>>", 1);
 
-	if (!itchygen->no_hash_del && event->type == ORDER_ADD) {
+	if (!event->remain_shares) {
 		int err = dhash_del(&itchygen->dhash,
 				    (uint32_t) event->ref_num);
 		assert(!err);
@@ -554,8 +566,11 @@ static struct order_event *generate_new_order(struct itchygen_info *itchygen,
 	    rand_index(itchygen->subscribed_prob_int, 2) == 0) {
 		sym_file = &itchygen->list_sym;
 		itchygen->stat.subscr_orders ++;
-	} else
+		order->subscribed = 1;
+	} else {
 		sym_file = &itchygen->all_sym;
+		order->subscribed = 0;
+	}
 	symbol_index = rand_int_range(0, sym_file->num_symbols - 1);
 	order->symbol = &sym_file->symbol[symbol_index];
 
@@ -603,6 +618,8 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 		    order->remain_shares - event->exec.shares;
 
 		itchygen->stat.execs++;
+		if (order->subscribed)
+			itchygen->stat.subscr_execs++;
 		break;
 	case ORDER_CANCEL:
 		event->cancel.order = order;
@@ -612,6 +629,8 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 		    order->remain_shares - event->cancel.shares;
 
 		itchygen->stat.cancels++;
+		if (order->subscribed)
+			itchygen->stat.subscr_cancels++;
 		break;
 	case ORDER_REPLACE:
 		event->replace.order = order;
@@ -626,6 +645,8 @@ static struct order_event *generate_modify_event(struct itchygen_info *itchygen,
 		event->cur_price = event->replace.price;
 
 		itchygen->stat.replaces++;
+		if (order->subscribed)
+			itchygen->stat.subscr_replaces++;
 		break;
 	default:
 		assert(event->type < MODIFY_ORDER_NUM_TYPES);
@@ -645,6 +666,7 @@ static void generate_single_timestamp(struct itchygen_info *itchygen,
 	memset(event, 0, sizeof(*event));
 	event->type = ORDER_TIMESTAMP;
 	set_event_time(event, (double)time_sec);
+	event->remain_shares = 1; /* fake value to suppress dhash del */
 	event->timestamp.seconds = time_sec;
 
 	itchygen->stat.timestamps++;
@@ -1182,9 +1204,6 @@ int main(int argc, char **argv)
 			printf("failed to read subscription list file\n");
 			exit(err);
 		}
-		exclude_symbol_file(&itchygen.all_sym, &itchygen.list_sym, 1);
-		exclude_symbol_file(&itchygen.list_sym, &itchygen.all_sym, 1);
-
 		itchygen.subscribed_prob_int[0].pcts_total = list_ratio;
 		itchygen.subscribed_prob_int[1].pcts_total = 100 - list_ratio;
 		rand_interval_init(itchygen.subscribed_prob_int, 2);
@@ -1218,6 +1237,11 @@ int main(int argc, char **argv)
 
 	print_params(&itchygen);
 
+	if (itchygen.list_sym.fname) {
+		exclude_symbol_file(&itchygen.all_sym, &itchygen.list_sym, 1);
+		exclude_symbol_file(&itchygen.list_sym, &itchygen.all_sym, 1);
+	}
+
 	err = pthread_create(&thread1, NULL, event_generator_thrd, &itchygen);
 	if (err) {
 		printf("Failed to create generator thread, %m\n");
@@ -1233,6 +1257,7 @@ int main(int argc, char **argv)
 
 	pcap_file_close();
 
+	printf("statistics:\n");
 	print_stats(&itchygen.stat, &itchygen.dhash);
 	dhash_cleanup(&itchygen.dhash);
 

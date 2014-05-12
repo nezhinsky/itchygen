@@ -118,6 +118,27 @@ static void ep_printf(struct endpoint_addr *ep)
 		(uint32_t) ep->port);
 }
 
+static int refn_complete(struct itchyparse_info *itchyparse, uint32_t refn32)
+{
+	int is_subscribed = 0;
+	int err;
+
+	if (!itchyparse->no_hash_del) {
+		err = dhash_del(&itchyparse->refn_dhash, refn32);
+		assert(!err);
+	}
+	err = dhash_find(&itchyparse->subscr_refn_dhash, refn32);
+	if (!err) {
+		/* ToDo: check if the order is exhausted */
+		err = dhash_del(&itchyparse->subscr_refn_dhash, refn32);
+		assert(!err);
+		is_subscribed = 1;
+	} else
+		assert(err == ENOENT);
+
+	return is_subscribed;
+}
+
 int main(int argc, char **argv)
 {
 	struct itchyparse_info itchyparse;
@@ -208,6 +229,9 @@ int main(int argc, char **argv)
 	if (!itchyparse.pcap_fname)
 		usage(EINVAL, "error: pcap file name not supplied");
 
+	printf("\nitchyparse ver %s, arguments:\n", ITCHYGEN_VER_STR);
+	printf("\tinput pcap file: %s\n", itchyparse.pcap_fname);
+
 	if (itchyparse.subscription.fname) {
 		int i;
 
@@ -216,6 +240,9 @@ int main(int argc, char **argv)
 			printf("failed to read symbols file\n");
 			exit(err);
 		}
+		printf("\tsubscription file: %s, symbols: %u\n",
+			itchyparse.subscription.fname,
+			itchyparse.subscription.num_symbols);
 
 		err = dhash_init(&itchyparse.subscr_name_dhash, CRC_WIDTH,
 				 itchyparse.poly, 1);
@@ -232,8 +259,6 @@ int main(int argc, char **argv)
 		}
 	}
 
-//	time_list_init(&itchyparse);
-
 	err = dhash_init(&itchyparse.refn_dhash, CRC_WIDTH,
 			 itchyparse.poly, itchyparse.num_poly);
 	if (err) {
@@ -242,7 +267,6 @@ int main(int argc, char **argv)
 		return err;
 	}
 
-	printf("\nfile: %s\n", itchyparse.pcap_fname);
 	err = pcap_file_open_rd(itchyparse.pcap_fname);
 	if (err) {
 		errno = err;
@@ -250,14 +274,12 @@ int main(int argc, char **argv)
 		return errno;
 	}
 
-	itchyparse.no_hash_del = 1;
-
 	for (;;) {
 		struct itch_packet itch_pkt;
 		size_t pkt_len;
 		uint32_t refn32, name32;
 		int src_changed, dst_changed;
-		int err;
+		int err, is_subscribed;
 
 		err = pcap_file_read_record(&itch_pkt, sizeof(itch_pkt),
 					    &pkt_len, &dst_ep, &src_ep);
@@ -274,6 +296,7 @@ int main(int argc, char **argv)
 			first = 0;
 
 			memcpy(&first_src_ep, &src_ep, sizeof(src_ep));
+			printf("first packet adresses:\n\t");
 			ep_printf(&first_src_ep);
 			printf(" -> ");
 			memcpy(&first_dst_ep, &dst_ep, sizeof(dst_ep));
@@ -365,27 +388,21 @@ int main(int argc, char **argv)
 			break;
 		case MSG_TYPE_ORDER_EXECUTED:
 			itchyparse.stat.execs ++;
-			err = dhash_find(&itchyparse.subscr_refn_dhash, refn32);
-			if (!err)
+			is_subscribed = refn_complete(&itchyparse, refn32);
+			if (is_subscribed)
 				itchyparse.stat.subscr_execs ++;
-			else
-				assert(err == ENOENT);
 			break;
 		case MSG_TYPE_ORDER_CANCEL:
 			itchyparse.stat.cancels ++;
-			err = dhash_find(&itchyparse.subscr_refn_dhash, refn32);
-			if (!err)
+			is_subscribed = refn_complete(&itchyparse, refn32);
+			if (is_subscribed)
 				itchyparse.stat.subscr_cancels ++;
-			else
-				assert(err == ENOENT);
 			break;
 		case MSG_TYPE_ORDER_REPLACE:
 			itchyparse.stat.replaces ++;
-			err = dhash_find(&itchyparse.subscr_refn_dhash, refn32);
-			if (!err)
+			is_subscribed = refn_complete(&itchyparse, refn32);
+			if (is_subscribed)
 				itchyparse.stat.subscr_replaces ++;
-			else
-				assert(err == ENOENT);
 			break;
 		case MSG_TYPE_TIMESTAMP:
 			itchyparse.stat.timestamps ++;
@@ -409,8 +426,7 @@ int main(int argc, char **argv)
 
 	pcap_file_close();
 
-//	print_params(&itchyparse);
-	print_stats(&itchyparse.stat, &itchyparse.refn_dhash);
+	printf("statistics:\n");
 	printf("\tseq.nums: %llu - %llu, seq.errors: %llu, "
 		"illegal msg.types: %u\n",
 		first_seq_num, last_seq_num, seq_errors, illegal_types);
@@ -418,27 +434,7 @@ int main(int argc, char **argv)
 		printf("\tedited seq.nums: %llu - %llu\n",
 			itchyparse.edit_first_seq, new_seq_num - 1);
 
-	assert(itchyparse.stat.subscr_orders + itchyparse.unsubscr_orders ==
-		itchyparse.stat.orders);
-
-	if (itchyparse.subscription.fname && itchyparse.stat.orders) {
-		printf("\tsubscription symbols: %u\n"
-			"\torders: %llu, subscribed: %llu (%3.1f%%), "
-			"unsubscribed: %llu (%3.1f%%)\n"
-			"\texecs: %llu, subscribed: %llu\n"
-			"\tcancels: %llu, subscribed: %llu\n"
-			"\treplaces: %llu, subscribed: %llu\n",
-			itchyparse.subscription.num_symbols,
-			itchyparse.stat.orders, itchyparse.stat.subscr_orders,
-			(itchyparse.stat.subscr_orders * 100.0) /
-			itchyparse.stat.orders,
-			itchyparse.unsubscr_orders,
-			(itchyparse.unsubscr_orders * 100.0) /
-			itchyparse.stat.orders,
-			itchyparse.stat.execs, itchyparse.stat.subscr_execs,
-			itchyparse.stat.cancels, itchyparse.stat.subscr_cancels,
-			itchyparse.stat.replaces, itchyparse.stat.subscr_replaces);
-	}
+	print_stats(&itchyparse.stat, &itchyparse.refn_dhash);
 
 	dhash_cleanup(&itchyparse.refn_dhash);
 	if (itchyparse.pcap_fname)
