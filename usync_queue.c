@@ -86,11 +86,12 @@ struct ulist_node *usync_queue_pop_(struct usync_queue *q, size_t off)
 	struct ulist_node *n;
 
 	pthread_mutex_lock(&q->qlist_mutex);
-	if (q->active) {
-		while (ulist_empty(&q->qlist))
-			pthread_cond_wait(&q->qlist_cond, &q->qlist_mutex);
+	while (q->active && ulist_empty(&q->qlist)) {
+		pthread_cond_wait(&q->qlist_cond, &q->qlist_mutex);
+	}
+	if (q->active)/* just pop from qlist */
 		n = (struct ulist_node *)ulist_pop_(&q->qlist, off);
-	} else
+	else
 		n = NULL;
 	pthread_mutex_unlock(&q->qlist_mutex);
 
@@ -102,11 +103,12 @@ int usync_queue_pull_list(struct usync_queue *q, struct ulist_head *h)
 	int err = 0;
 
 	pthread_mutex_lock(&q->qlist_mutex);
-	if (q->active) {
-		while (ulist_empty(&q->qlist))
-			pthread_cond_wait(&q->qlist_cond, &q->qlist_mutex);
-		ulist_append_list(h, &q->qlist); /* move qlist to h */
-	} else
+	while (q->active && ulist_empty(&q->qlist)) {
+		pthread_cond_wait(&q->qlist_cond, &q->qlist_mutex);
+	}
+	if (q->active) /* move entire qlist to user-supplied list h */
+		ulist_append_list(h, &q->qlist);
+	else
 		err = -1;
 	pthread_mutex_unlock(&q->qlist_mutex);
 
@@ -125,8 +127,6 @@ void usync_queue_shutdown(struct usync_queue *q)
 	pthread_cond_signal(&q->qlist_cond);
 	pthread_mutex_unlock(&q->qlist_mutex);
 }
-
-
 
 #ifdef	__cplusplus
 }
