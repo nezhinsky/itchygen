@@ -734,4 +734,4 @@ static inline struct ulist_node *ulist_node_from_off_(void *ptr, size_t off)
 	 check_type(var->member, struct ulist_node))
 
 __END_DECLS
-#endif				/* __LIST_H_ */
+#endif				/* __ULIST_H_ */
