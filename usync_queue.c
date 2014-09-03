@@ -81,21 +81,19 @@ void usync_queue_push_node(struct usync_queue *q, struct ulist_node *n)
 	pthread_mutex_unlock(&q->qlist_mutex);
 }
 
-struct ulist_node *usync_queue_pop_(struct usync_queue *q, size_t off)
+const void *usync_queue_pop_(struct usync_queue *q, size_t off)
 {
-	struct ulist_node *n;
+	const void *p;
 
 	pthread_mutex_lock(&q->qlist_mutex);
 	while (q->active && ulist_empty(&q->qlist)) {
 		pthread_cond_wait(&q->qlist_cond, &q->qlist_mutex);
 	}
-	if (q->active)/* just pop from qlist */
-		n = (struct ulist_node *)ulist_pop_(&q->qlist, off);
-	else
-		n = NULL;
+	/* just pop from qlist */
+	p = (q->active) ? ulist_pop_(&q->qlist, off) : NULL;
 	pthread_mutex_unlock(&q->qlist_mutex);
 
-	return n;
+	return p;
 }
 
 int usync_queue_pull_list(struct usync_queue *q, struct ulist_head *h)

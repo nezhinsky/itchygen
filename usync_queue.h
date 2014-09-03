@@ -30,10 +30,10 @@ void usync_queue_push_list(struct usync_queue *q, struct ulist_head *h);
 
 void usync_queue_push_node(struct usync_queue *q, struct ulist_node *n);
 
-struct ulist_node *usync_queue_pop_(struct usync_queue *q, size_t off);
+const void *usync_queue_pop_(struct usync_queue *q, size_t off);
 
 #define usync_queue_pop(q, type, member) \
-	(usync_queue_pop_(q, ulist_off_(type, member)))
+	((type *)usync_queue_pop_(q, ulist_off_(type, member)))
 
 int usync_queue_pull_list(struct usync_queue *q, struct ulist_head *h);
 
